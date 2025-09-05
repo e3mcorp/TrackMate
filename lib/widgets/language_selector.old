@@ -1,0 +1,40 @@
+// lib/widgets/language_selector.dart
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:trackmate/locale/app_localizations.dart';
+//import 'package:trackmate/locale/locale_manager.dart';
+import 'package:trackmate/locale/supported_locales.dart';
+
+class LanguageSelector extends StatelessWidget {
+  const LanguageSelector({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final localeManager = Provider.of<LocaleManager>(context);
+    final localizations = AppLocalizations.of(context)!;
+
+    return PopupMenuButton<Locale>(
+      icon: const Icon(Icons.language),
+      tooltip: localizations.get('locale'),
+      onSelected: (Locale locale) {
+        localeManager.setLocale(locale);
+      },
+      itemBuilder: (BuildContext context) {
+        return SupportedLocales.supportedLocales.map((Locale locale) {
+          return PopupMenuItem<Locale>(
+            value: locale,
+            child: Row(
+              children: [
+                Text(SupportedLocales.getDisplayName(locale)),
+                if (localeManager.currentLocale == locale) ...[
+                  const Spacer(),
+                  const Icon(Icons.check, color: Colors.green),
+                ],
+              ],
+            ),
+          );
+        }).toList();
+      },
+    );
+  }
+}
