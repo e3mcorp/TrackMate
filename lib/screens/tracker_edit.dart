@@ -3,6 +3,7 @@ import 'package:trackmate/database/database.dart';
 import 'package:trackmate/database/tracker_db.dart';
 import 'package:trackmate/locale/app_localizations.dart';
 import 'package:trackmate/screens/tracker_details.dart';
+import 'package:trackmate/screens/tracker_history.dart';
 import 'package:trackmate/screens/tracker_messages.dart';
 import 'package:trackmate/screens/tracker_map.dart';
 import 'package:trackmate/widgets/modal.dart';
@@ -61,7 +62,7 @@ class TrackerEditScreenState extends State<TrackerEditScreen> {
       ),
       drawer: _buildClassicDrawer(localizations, theme, colorScheme),
       body: _buildMainContent(localizations, theme, colorScheme),
-      floatingActionButton: _buildFloatingActionButton(localizations, colorScheme),
+      //floatingActionButton: _buildFloatingActionButton(localizations, colorScheme),
     );
   }
 
@@ -293,7 +294,7 @@ class TrackerEditScreenState extends State<TrackerEditScreen> {
           ),
         ],
       ),
-      floatingActionButton: _buildFloatingActionButton(localizations, colorScheme),
+      //floatingActionButton: _buildFloatingActionButton(localizations, colorScheme),
     );
   }
 
@@ -655,8 +656,12 @@ class TrackerEditScreenState extends State<TrackerEditScreen> {
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(
+            /*onPressed: () => Navigator.push(context, MaterialPageRoute(
               builder: (context) => TrackerPositionMapScreen(widget.tracker),
+            )),
+            */
+            onPressed: () => Navigator.push(context, MaterialPageRoute(
+              builder: (context) => TrackerHistoryScreen(widget.tracker),
             )),
           ),
         ),

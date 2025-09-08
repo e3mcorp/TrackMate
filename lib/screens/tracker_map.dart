@@ -1,4 +1,11 @@
 import 'dart:typed_data';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 import 'package:trackmate/data/tracker.dart';
 import 'package:trackmate/data/tracker_position.dart';
 import 'package:trackmate/database/database.dart';
@@ -6,34 +13,31 @@ import 'package:trackmate/database/tracker_db.dart';
 import 'package:trackmate/database/tracker_position_db.dart';
 import 'package:trackmate/locale/app_localizations.dart';
 import 'package:trackmate/screens/tracker_positions.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
-import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class TrackerPositionMapScreen extends StatefulWidget {
   final Tracker tracker;
-
   const TrackerPositionMapScreen(this.tracker, {super.key});
 
   @override
-  State<TrackerPositionMapScreen> createState() => TrackerPositionMapScreenState();
+  State<TrackerPositionMapScreen> createState() => _TrackerPositionMapScreenState();
 }
 
-class TrackerPositionMapScreenState extends State<TrackerPositionMapScreen> {
-  MapboxMap? _mapboxMap;
+class _TrackerPositionMapScreenState extends State<TrackerPositionMapScreen> {
+  final MapController _mapController = MapController();
+
+  // Positions newest-first (index 0 is latest)
   List<TrackerPosition> _positions = [];
-  Map<String, TrackerPosition> _annotationData = {};
-  PointAnnotationManager? _pointManager;
-  PolylineAnnotationManager? _polylineManager;
   bool _isLoading = true;
   String? _error;
+
+  // Asset for marker icon (optional)
+  Uint8List? _markerImage;
 
   @override
   void initState() {
     super.initState();
     TrackerDB.changeNotifier.addListener(_onTrackerDataChanged);
+    _loadAssets();
     _loadPositions();
   }
 
@@ -44,8 +48,19 @@ class TrackerPositionMapScreenState extends State<TrackerPositionMapScreen> {
   }
 
   void _onTrackerDataChanged() {
-    if (mounted) {
-      _loadPositions();
+    if (!mounted) return;
+    _loadPositions();
+  }
+
+  Future<void> _loadAssets() async {
+    try {
+      final bytes = await rootBundle.load("assets/sdf/geo-sdf.png");
+      if (!mounted) return;
+      setState(() {
+        _markerImage = bytes.buffer.asUint8List();
+      });
+    } catch (_) {
+      // L'icona personalizzata è opzionale; se mancante useremo un marker di fallback
     }
   }
 
@@ -59,162 +74,34 @@ class TrackerPositionMapScreenState extends State<TrackerPositionMapScreen> {
       final db = await DataBase.get();
       final positions = await TrackerPositionDB.list(db!, widget.tracker.uuid);
 
-      if (mounted) {
-        setState(() {
-          _positions = positions;
-          _isLoading = false;
-        });
+      if (!mounted) return;
+      setState(() {
+        _positions = positions;
+        _isLoading = false;
+      });
 
-        // Aggiorna la mappa se è già inizializzata
-        if (_mapboxMap != null && _positions.isNotEmpty) {
-          await _updateMapData();
-        }
+      if (_positions.isNotEmpty) {
+        await _centerOnLatest();
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _positions = [];
-          _isLoading = false;
-          _error = e.toString();
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _positions = [];
+        _isLoading = false;
+        _error = e.toString();
+      });
     }
   }
 
-  // ✅ CORREZIONE: Usa tapEvents invece di addOnClickListener
-  Future<void> _initializeManagers() async {
-    if (_mapboxMap == null) return;
-
-    try {
-      _pointManager ??= await _mapboxMap!.annotations.createPointAnnotationManager();
-      _polylineManager ??= await _mapboxMap!.annotations.createPolylineAnnotationManager();
-
-      // ✅ Setup tap events con la sintassi corretta per Flutter Mapbox
-      _pointManager?.tapEvents(
-        onTap: (annotation) {
-          final position = _annotationData[annotation.id];
-          if (position != null) {
-            _showPositionDialog(position);
-          }
-        },
-      );
-    } catch (e) {
-      debugPrint('Error initializing map managers: $e');
-    }
+  Future<void> _centerOnLatest() async {
+    if (_positions.isEmpty) return;
+    await Future.delayed(const Duration(milliseconds: 150));
+    final latest = _positions.first;
+    _mapController.move(LatLng(latest.latitude, latest.longitude), 15.0);
   }
 
-  Future<void> _updateMapData() async {
-    if (_positions.isEmpty || _pointManager == null || _polylineManager == null) return;
-
-    try {
-      // Clear existing annotations
-      await _pointManager!.deleteAll();
-      await _polylineManager!.deleteAll();
-      _annotationData.clear();
-
-      // Draw trajectory
-      await _drawTrajectory();
-
-      // Draw markers
-      await _drawMarkers();
-
-      // Center camera on latest position
-      await _centerCameraOnLatestPosition();
-    } catch (e) {
-      debugPrint('Error updating map data: $e');
-    }
-  }
-
-  Future<void> _drawMarkers() async {
-    if (_pointManager == null || _positions.isEmpty) return;
-
-    try {
-      final ByteData bytes = await rootBundle.load("assets/sdf/geo-sdf.png");
-      final Uint8List imageData = bytes.buffer.asUint8List();
-
-      final List<PointAnnotationOptions> options = [];
-
-      for (int i = 0; i < _positions.length; i++) {
-        final position = _positions[i];
-        options.add(
-          PointAnnotationOptions(
-            geometry: Point(
-                coordinates: Position(position.longitude, position.latitude)
-            ),
-            image: imageData,
-            iconSize: i == 0 ? 1.2 : 0.8, // Latest position is larger
-            iconColor: i == 0
-                ? widget.tracker.color
-                : Color(widget.tracker.color).withOpacity(0.7).value,
-            textField: '${i + 1}',
-            textSize: 12.0,
-            textOffset: [0.0, 2.2],
-            textColor: Colors.white.value,
-          ),
-        );
-      }
-
-      final annotations = await _pointManager!.createMulti(options);
-
-      // Store position data for tap events
-      for (int i = 0; i < annotations.length && i < _positions.length; i++) {
-        final annotation = annotations[i];
-        if (annotation != null) {
-          _annotationData[annotation.id] = _positions[i];
-        }
-      }
-    } catch (e) {
-      debugPrint('Error drawing markers: $e');
-    }
-  }
-
-  Future<void> _drawTrajectory() async {
-    if (_polylineManager == null || _positions.length < 2) return;
-
-    try {
-      final List<Position> coords = _positions
-          .map((p) => Position(p.longitude, p.latitude))
-          .toList();
-
-      final PolylineAnnotationOptions line = PolylineAnnotationOptions(
-        geometry: LineString(coordinates: coords),
-        lineWidth: 3.0,
-        lineOpacity: 0.8,
-        lineColor: widget.tracker.color,
-      );
-
-      await _polylineManager!.create(line);
-    } catch (e) {
-      debugPrint('Error drawing trajectory: $e');
-    }
-  }
-
-  Future<void> _centerCameraOnLatestPosition() async {
-    if (_mapboxMap == null || _positions.isEmpty) return;
-
-    try {
-      await Future.delayed(const Duration(milliseconds: 300));
-
-      final position = _positions.first;
-      await _mapboxMap!.setCamera(
-        CameraOptions(
-          center: Point(
-              coordinates: Position(position.longitude, position.latitude)
-          ),
-          zoom: 15.0,
-        ),
-      );
-    } catch (e) {
-      debugPrint('Error centering camera: $e');
-    }
-  }
-
-  Future<void> _onMapCreated(MapboxMap controller) async {
-    _mapboxMap = controller;
-    await _initializeManagers();
-    if (_positions.isNotEmpty) {
-      await _updateMapData();
-    }
+  void _onMarkerTap(TrackerPosition position) {
+    _showPositionDialog(position);
   }
 
   void _showPositionDialog(TrackerPosition position) {
@@ -287,20 +174,18 @@ class TrackerPositionMapScreenState extends State<TrackerPositionMapScreen> {
       HapticFeedback.lightImpact();
       final url = position.getGoogleMapsURL();
       final uri = Uri.parse(url);
-
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
-    } catch (e) {
-      if (mounted) {
-        final localizations = AppLocalizations.of(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(localizations?.get('errorOpeningMaps') ?? 'Error opening maps'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
+    } catch (_) {
+      if (!mounted) return;
+      final localizations = AppLocalizations.of(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(localizations?.get('errorOpeningMaps') ?? 'Error opening maps'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
     }
   }
 
@@ -326,21 +211,18 @@ class TrackerPositionMapScreenState extends State<TrackerPositionMapScreen> {
           ),
         ],
       ),
-      body: Consumer<TrackerNotifier>(
+      body: Consumer<Object?>(
         builder: (context, trackerNotifier, child) {
           if (_isLoading) {
             return _buildLoadingState(localizations, theme, colorScheme);
           }
-
           if (_error != null) {
             return _buildErrorState(localizations, theme, colorScheme);
           }
-
           if (_positions.isEmpty) {
             return _buildEmptyState(localizations, theme, colorScheme);
           }
-
-          return _buildMap();
+          return _buildMap(colorScheme);
         },
       ),
       floatingActionButton: _positions.isNotEmpty
@@ -366,7 +248,7 @@ class TrackerPositionMapScreenState extends State<TrackerPositionMapScreen> {
             heroTag: "center",
             backgroundColor: colorScheme.primaryContainer,
             foregroundColor: colorScheme.onPrimaryContainer,
-            onPressed: _centerCameraOnLatestPosition,
+            onPressed: _centerOnLatest,
             child: const Icon(Icons.my_location),
           ),
         ],
@@ -375,21 +257,123 @@ class TrackerPositionMapScreenState extends State<TrackerPositionMapScreen> {
     );
   }
 
+  Widget _buildMap(ColorScheme colorScheme) {
+    if (_positions.isEmpty) return const SizedBox();
+
+    final latest = _positions.first;
+    final initialCenter = LatLng(latest.latitude, latest.longitude);
+
+    // Markers: latest più grande/colore pieno; altri più piccoli/alpha
+    final markers = <Marker>[
+      for (int i = 0; i < _positions.length; i++)
+        Marker(
+          point: LatLng(_positions[i].latitude, _positions[i].longitude),
+          width: i == 0 ? 44 : 36,
+          height: i == 0 ? 44 : 36,
+          alignment: Alignment.center,
+          child: GestureDetector(
+            onTap: () => _onMarkerTap(_positions[i]),
+            child: _buildMarkerIcon(
+              isLatest: i == 0,
+              color: Color(widget.tracker.color),
+              label: '${i + 1}',
+            ),
+          ),
+        ),
+    ];
+
+    // Polyline della traccia
+    final linePoints = _positions
+        .map((p) => LatLng(p.latitude, p.longitude))
+        .toList(growable: false);
+
+    return FlutterMap(
+      mapController: _mapController,
+      options: MapOptions(
+        initialCenter: initialCenter,
+        initialZoom: 12.0,
+        interactionOptions: const InteractionOptions(
+          flags: InteractiveFlag.all,
+        ),
+      ),
+      children: [
+        // Tile Layer (OSM libero). Inserire un attribution widget per conformità.
+        TileLayer(
+          urlTemplate: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          subdomains: const ['a', 'b', 'c'],
+          userAgentPackageName: 'com.example.trackmate',
+          tileProvider: NetworkTileProvider(),
+        ),
+        PolylineLayer(
+          polylines: [
+            if (linePoints.length >= 2)
+              Polyline(
+                points: linePoints,
+                strokeWidth: 3.0,
+                color: Color(widget.tracker.color).withOpacity(0.8),
+              ),
+          ],
+        ),
+        MarkerLayer(markers: markers),
+        // Attribution OSM
+        Align(
+          alignment: Alignment.bottomRight,
+          child: Container(
+            margin: const EdgeInsets.all(8),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            color: Colors.black.withOpacity(0.4),
+            child: const Text(
+              '© OpenStreetMap contributors',
+              style: TextStyle(color: Colors.white, fontSize: 11),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMarkerIcon({
+    required bool isLatest,
+    required Color color,
+    required String label,
+  }) {
+    // Se si dispone dell’immagine SDF, si può costruire una Image.memory,
+    // altrimenti si usa un cerchio + label per semplicità.
+    final baseColor = isLatest ? color : color.withOpacity(0.7);
+    return Container(
+      decoration: BoxDecoration(
+        color: baseColor,
+        shape: BoxShape.circle,
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black26,
+            blurRadius: 4,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 12,
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
   Widget _buildLoadingState(AppLocalizations? localizations, ThemeData theme, ColorScheme colorScheme) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(
-            color: colorScheme.primary,
-            strokeWidth: 3,
-          ),
+          CircularProgressIndicator(color: colorScheme.primary, strokeWidth: 3),
           const SizedBox(height: 24),
           Text(
             localizations?.get('loadingMap') ?? 'Loading map...',
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
+            style: theme.textTheme.bodyLarge?.copyWith(color: colorScheme.onSurfaceVariant),
           ),
         ],
       ),
@@ -409,11 +393,7 @@ class TrackerPositionMapScreenState extends State<TrackerPositionMapScreen> {
                 color: colorScheme.errorContainer.withOpacity(0.3),
                 borderRadius: BorderRadius.circular(24),
               ),
-              child: Icon(
-                Icons.error_outline,
-                size: 80,
-                color: colorScheme.error,
-              ),
+              child: Icon(Icons.error_outline, size: 80, color: colorScheme.error),
             ),
             const SizedBox(height: 32),
             Text(
@@ -426,16 +406,11 @@ class TrackerPositionMapScreenState extends State<TrackerPositionMapScreen> {
             const SizedBox(height: 16),
             Text(
               _error ?? 'Unknown error',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
+              style: theme.textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 32),
-            FilledButton.tonal(
-              onPressed: _loadPositions,
-              child: Text(localizations?.get('retry') ?? 'Retry'),
-            ),
+            FilledButton.tonal(onPressed: _loadPositions, child: Text(localizations?.get('retry') ?? 'Retry')),
           ],
         ),
       ),
@@ -455,11 +430,7 @@ class TrackerPositionMapScreenState extends State<TrackerPositionMapScreen> {
                 color: colorScheme.surfaceVariant.withOpacity(0.3),
                 borderRadius: BorderRadius.circular(24),
               ),
-              child: Icon(
-                Icons.map,
-                size: 80,
-                color: colorScheme.onSurfaceVariant,
-              ),
+              child: Icon(Icons.map, size: 80, color: colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 32),
             Text(
@@ -472,10 +443,9 @@ class TrackerPositionMapScreenState extends State<TrackerPositionMapScreen> {
             ),
             const SizedBox(height: 16),
             Text(
-              localizations?.get('requestPositionToSeeMap') ?? 'Request a position from your tracker to see the map',
-              style: theme.textTheme.bodyLarge?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
+              localizations?.get('requestPositionToSeeMap') ??
+                  'Request a position from the tracker to see the map',
+              style: theme.textTheme.bodyLarge?.copyWith(color: colorScheme.onSurfaceVariant),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 40),
@@ -487,24 +457,6 @@ class TrackerPositionMapScreenState extends State<TrackerPositionMapScreen> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildMap() {
-    if (_positions.isEmpty) return const SizedBox();
-
-    return MapWidget(
-      key: const ValueKey("tracker_map"),
-      cameraOptions: CameraOptions(
-        center: Point(
-          coordinates: Position(
-            _positions.first.longitude,
-            _positions.first.latitude,
-          ),
-        ),
-        zoom: 12.0,
-      ),
-      onMapCreated: _onMapCreated,
     );
   }
 }

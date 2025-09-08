@@ -59,6 +59,9 @@ dependencies:
   google_nav_bar: ^5.0.7
   sidebarx: ^0.17.2
   flutter_side_menu: ^0.5.41
+  table_calendar: ^3.2.0
+  flutter_map: ^8.2.1
+
 
 dev_dependencies:
   flutter_test:

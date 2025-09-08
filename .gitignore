@@ -46,10 +46,7 @@ app.*.map.json
 
 
 # Flutter/Dart
-.dart_tool/
 .packages
-.pub-cache/
-.pub/
 build/
 flutter_*.png
 
@@ -65,12 +62,9 @@ key.properties
 *.cer
 
 # IDE
-.idea/
-*.iml
 .vscode/
 
 # OS
-.DS_Store
 Thumbs.db
 
 # Logs
@@ -78,3 +72,24 @@ Thumbs.db
 
 # Local config
 local.properties
+
+
+
+
+# Flutter/Dart generated files
+.flutter-plugins
+
+coverage/
+doc/api/
+
+
+# Android related
+
+android/**/google-services.json
+
+# iOS related
+
+GoogleService-Info.plist
+
+
+/lib/screens/map1.dart

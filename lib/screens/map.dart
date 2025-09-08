@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+
 import 'package:trackmate/data/tracker.dart';
 import 'package:trackmate/data/tracker_position.dart';
 import 'package:trackmate/database/database.dart';
@@ -8,13 +9,18 @@ import 'package:trackmate/locale/app_localizations.dart';
 import 'package:trackmate/utils/data-validator.dart';
 import 'package:trackmate/utils/geolocation.dart';
 import 'package:trackmate/widgets/modal.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import 'package:geolocator/geolocator.dart' as geo;
-import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+
 import '../themes.dart';
 
 class MapScreen extends StatefulWidget {
@@ -25,148 +31,75 @@ class MapScreen extends StatefulWidget {
 }
 
 class MapScreenState extends State<MapScreen> {
-  late MapboxMap mapboxMap;
-  PointAnnotationManager? pointManager;
-  Map<String, dynamic> _annotationData = {};
-  List<Map<String, dynamic>> _trackerEntries = [];
+  final MapController _mapController = MapController();
+
+  // markers data: [{'tracker': Tracker, 'position': TrackerPosition}]
+  List<Map<String, Object>> _trackerEntries = [];
   bool _isMapReady = false;
 
-  String _getStyleUri() {
-    return Themes.checkMode() == ThemeMode.dark
-        ? 'mapbox://styles/mapbox/dark-v10'
-        : 'mapbox://styles/mapbox/light-v10';
-  }
+  Uint8List? _markerImageBytes; // opzionale se vuoi usare l’asset esistente
 
   @override
   void initState() {
     super.initState();
-    // ✅ Aggiungi listener per TrackerDB per aggiornamenti posizioni
     TrackerDB.changeNotifier.addListener(_onTrackerDataChanged);
+    _loadMarkerAsset();
   }
 
   @override
   void dispose() {
-    // ✅ Rimuovi listener per evitare memory leaks
     TrackerDB.changeNotifier.removeListener(_onTrackerDataChanged);
     super.dispose();
   }
 
-  /// ✅ NEW: Callback quando i dati tracker cambiano
+  Future<void> _loadMarkerAsset() async {
+    try {
+      final bytes = await rootBundle.load("assets/sdf/geo-sdf.png");
+      setState(() {
+        _markerImageBytes = bytes.buffer.asUint8List();
+      });
+    } catch (_) {
+      // asset opzionale; in fallback useremo marker circolari
+    }
+  }
+
   void _onTrackerDataChanged() {
     if (_isMapReady) {
       _reloadMarkersFromDatabase();
     }
   }
 
-  /// ✅ NEW: Ricarica marker dal database quando i dati cambiano
   Future<void> _reloadMarkersFromDatabase() async {
     try {
-      await _clearExistingMarkers();
-      await _drawMarkers();
-
+      final db = await DataBase.get();
+      final rawEntries = await TrackerPositionDB.getAllTrackerLastPosition(db!);
+      final entries = rawEntries
+          .map<Map<String, Object>>(
+            (entry) => {
+          'tracker': entry.tracker,
+          'position': entry.position,
+        },
+      )
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _trackerEntries = entries;
+      });
+      if (_trackerEntries.isNotEmpty) {
+        await _flyToFitTrackers();
+      }
       if (kDebugMode) {
-        print('MapScreen: Markers reloaded due to database change');
+        debugPrint('MapScreen: Markers reloaded due to database change');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('MapScreen: Error reloading markers: $e');
-      }
-    }
-  }
-
-  /// ✅ NEW: Pulisce i marker esistenti
-  Future<void> _clearExistingMarkers() async {
-    if (pointManager != null) {
-      await pointManager!.deleteAll();
-      _annotationData.clear();
-    }
-  }
-
-  Future<void> _initManagers() async {
-    pointManager ??= await mapboxMap.annotations.createPointAnnotationManager();
-    pointManager?.tapEvents(
-      onTap: (annotation) {
-        try {
-          final annotationId = annotation.id;
-          final data = _annotationData[annotationId];
-          if (data != null) {
-            final dynamic positionData = data['position'];
-            final dynamic trackerData = data['tracker'];
-            if (positionData is TrackerPosition && trackerData is Tracker) {
-              final TrackerPosition position = positionData;
-              _flyToPosition(position.latitude, position.longitude, 16.0);
-              launchUrl(Uri.parse(position.getGoogleMapsURL()));
-            }
-          }
-        } catch (e) {
-          debugPrint('Error handling annotation tap: $e');
-        }
-      },
-    );
-  }
-
-  Future<void> _drawMarkers() async {
-    final db = await DataBase.get();
-    final rawEntries = await TrackerPositionDB.getAllTrackerLastPosition(db!);
-
-    _trackerEntries = rawEntries.map((entry) => {
-      'tracker': entry.tracker,
-      'position': entry.position,
-    }).toList();
-
-    if (_trackerEntries.isEmpty) return;
-
-    final ByteData bytes = await rootBundle.load("assets/sdf/geo-sdf.png");
-    final Uint8List imageBytes = bytes.buffer.asUint8List();
-    final Color? textColor = Themes.theme().textTheme.bodyLarge?.color;
-    final Color? textBorderColor = Themes.theme().textTheme.titleSmall?.color;
-
-    final List<PointAnnotationOptions> options = _trackerEntries.map((entry) {
-      final Tracker tracker = entry['tracker'] as Tracker;
-      final TrackerPosition position = entry['position'] as TrackerPosition;
-
-      return PointAnnotationOptions(
-        geometry: Point(coordinates: Position(position.longitude, position.latitude)),
-        image: imageBytes,
-        iconSize: 0.9,
-        iconColor: Color(tracker.color).value,
-        textField: tracker.name,
-        textSize: 16.0,
-        textOffset: [0.0, 2.0],
-        textColor: (textColor ?? const Color(0xFF000000)).value,
-        textHaloColor: (textBorderColor ?? const Color(0xFFFFFFFF)).value,
-        textHaloWidth: 1.0,
-      );
-    }).toList();
-
-    try {
-      final createdAnnotations = await pointManager!.createMulti(options);
-
-      // ✅ Mantieni riferimenti ai marker per il tap handling
-      for (int i = 0; i < createdAnnotations.length && i < _trackerEntries.length; i++) {
-        final annotation = createdAnnotations[i];
-        if (annotation != null) {
-          _annotationData[annotation.id] = {
-            'position': _trackerEntries[i]['position'],
-            'tracker': _trackerEntries[i]['tracker'],
-          };
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('MapScreen: Error creating annotations: $e');
+        debugPrint('MapScreen: Error reloading markers: $e');
       }
     }
   }
 
   Future<void> _flyToPosition(double latitude, double longitude, double zoom) async {
-    await mapboxMap.flyTo(
-      CameraOptions(
-        center: Point(coordinates: Position(longitude, latitude)),
-        zoom: zoom,
-      ),
-      MapAnimationOptions(duration: 1000),
-    );
+    _mapController.move(LatLng(latitude, longitude), zoom);
   }
 
   Future<void> _flyToFitTrackers() async {
@@ -182,30 +115,23 @@ class MapScreenState extends State<MapScreen> {
     double maxLat = -double.infinity;
     double minLon = double.infinity;
     double maxLon = -double.infinity;
-
     for (final entry in _trackerEntries) {
       final TrackerPosition position = entry['position'] as TrackerPosition;
       final lat = position.latitude;
       final lon = position.longitude;
-
       if (lat < minLat) minLat = lat;
       if (lat > maxLat) maxLat = lat;
       if (lon < minLon) minLon = lon;
       if (lon > maxLon) maxLon = lon;
     }
 
-    try {
-      await _fallbackFlyToTrackers(minLat, maxLat, minLon, maxLon);
-    } catch (e) {
-      debugPrint('Error fitting camera to trackers: $e');
-      await _fallbackFlyToTrackers(minLat, maxLat, minLon, maxLon);
-    }
+    await _fallbackFlyToTrackers(minLat, maxLat, minLon, maxLon);
   }
 
   Future<void> _fallbackFlyToTrackers(double minLat, double maxLat, double minLon, double maxLon) async {
+    // padding 10%
     final latPadding = (maxLat - minLat) * 0.1;
     final lonPadding = (maxLon - minLon) * 0.1;
-
     minLat -= latPadding;
     maxLat += latPadding;
     minLon -= lonPadding;
@@ -213,6 +139,7 @@ class MapScreenState extends State<MapScreen> {
 
     final centerLat = (minLat + maxLat) / 2;
     final centerLon = (minLon + maxLon) / 2;
+
     final latDiff = maxLat - minLat;
     final lonDiff = maxLon - minLon;
     final maxDiff = latDiff > lonDiff ? latDiff : lonDiff;
@@ -232,13 +159,7 @@ class MapScreenState extends State<MapScreen> {
       zoom = 6.0;
     }
 
-    await mapboxMap.flyTo(
-      CameraOptions(
-        center: Point(coordinates: Position(centerLon, centerLat)),
-        zoom: zoom,
-      ),
-      MapAnimationOptions(duration: 1500),
-    );
+    _mapController.move(LatLng(centerLat, centerLon), zoom);
   }
 
   Future<void> _flyToUser(geo.Position? userPos) async {
@@ -246,20 +167,23 @@ class MapScreenState extends State<MapScreen> {
     await _flyToPosition(userPos.latitude, userPos.longitude, 15.0);
   }
 
-  Future<void> _onMapCreated(MapboxMap controller, geo.Position? userPos) async {
-    mapboxMap = controller;
-    await mapboxMap.loadStyleURI(_getStyleUri());
-    await _initManagers();
-
-    // ✅ Marca la mappa come pronta per gli aggiornamenti
+  Future<void> _onMapReady(geo.Position? userPos) async {
     _isMapReady = true;
-
-    await _drawMarkers();
-
+    await _reloadMarkersFromDatabase();
     if (_trackerEntries.isNotEmpty) {
       await _flyToFitTrackers();
     } else if (userPos != null) {
       await _flyToUser(userPos);
+    }
+  }
+
+  Future<void> _onMarkerTap(TrackerPosition position) async {
+    // Apri direttamente Google Maps come facevi nel tap dell’annotation
+    final uri = Uri.parse(position.getGoogleMapsURL());
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      debugPrint('Error opening maps: $e');
     }
   }
 
@@ -274,18 +198,59 @@ class MapScreenState extends State<MapScreen> {
             future: Geolocation.getPosition(),
             builder: (context, snapshot) {
               final geo.Position? pos = snapshot.data;
-              final Point center = Point(coordinates: Position(0, 0));
 
-              // ✅ CORREZIONE: Usa ChangeNotifierProvider.value per ascoltare i cambiamenti
+              // Usa ChangeNotifierProvider.value per ascoltare i cambiamenti del DB
               return ChangeNotifierProvider.value(
                 value: TrackerDB.changeNotifier,
-                child: Consumer<TrackerNotifier>(
+                child: Consumer<Object?>(
                   builder: (context, notifier, child) {
-                    return MapWidget(
-                      key: const ValueKey("map"),
-                      cameraOptions: CameraOptions(center: center, zoom: 2.0),
-                      styleUri: _getStyleUri(),
-                      onMapCreated: (map) => _onMapCreated(map, pos),
+                    // Inizializza quando la mappa viene costruita la prima volta
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!_isMapReady) {
+                        _onMapReady(pos);
+                      }
+                    });
+
+                    // Centro iniziale (fallback)
+                    final initialCenter = LatLng(pos?.latitude ?? 0, pos?.longitude ?? 0);
+
+                    return FlutterMap(
+                      mapController: _mapController,
+                      options: MapOptions(
+                        initialCenter: initialCenter,
+                        initialZoom: 2.0,
+                        interactionOptions: const InteractionOptions(flags: InteractiveFlag.all),
+                      ),
+                      children: [
+                        // TileLayer: qui puoi sostituire il provider (OSM, Stadia, MapTiler, ecc.)
+                        TileLayer(
+                          urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                          userAgentPackageName: 'com.example.trackmate',
+                        ),
+                        // Layer markers (uno per tracker)
+                        MarkerLayer(
+                          markers: [
+                            for (final entry in _trackerEntries)
+                              _buildMarker(
+                                entry['tracker'] as Tracker,
+                                entry['position'] as TrackerPosition,
+                              ),
+                          ],
+                        ),
+                        // Attribution OSM (conforme alle policy)
+                        Align(
+                          alignment: Alignment.bottomRight,
+                          child: Container(
+                            margin: const EdgeInsets.all(8),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            color: Colors.black.withOpacity(0.4),
+                            child: const Text(
+                              '© OpenStreetMap contributors',
+                              style: TextStyle(color: Colors.white, fontSize: 11),
+                            ),
+                          ),
+                        ),
+                      ],
                     );
                   },
                 ),
@@ -297,7 +262,7 @@ class MapScreenState extends State<MapScreen> {
       floatingActionButton: Column(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          // ✅ Bottone per ricaricare manualmente i marker
+          // Bottone per ricaricare manualmente i marker
           FloatingActionButton(
             heroTag: "refresh_markers",
             onPressed: () async {
@@ -316,7 +281,6 @@ class MapScreenState extends State<MapScreen> {
             child: const Icon(Icons.refresh, color: Colors.white),
           ),
           const SizedBox(height: 10),
-
           // Bottone per centrare sui tracker
           if (_trackerEntries.isNotEmpty)
             FloatingActionButton(
@@ -327,7 +291,6 @@ class MapScreenState extends State<MapScreen> {
               child: const Icon(Icons.my_location, color: Colors.white),
             ),
           const SizedBox(height: 10),
-
           // Bottone per volare alla posizione utente
           FloatingActionButton(
             heroTag: "fly_to_user",
@@ -342,20 +305,17 @@ class MapScreenState extends State<MapScreen> {
             child: const Icon(Icons.person_pin_circle, color: Colors.white),
           ),
           const SizedBox(height: 10),
-
           // Bottone per richiedere posizioni
           FloatingActionButton(
             heroTag: "request_position",
             onPressed: () async {
               final db = await DataBase.get();
               final trackers = await TrackerDB.list(db!);
-
               for (final t in trackers) {
                 if (DataValidator.phoneNumber(t.phoneNumber)) {
                   t.requestLocation();
                 }
               }
-
               if (context.mounted) {
                 Modal.toast(
                   context,
@@ -371,5 +331,70 @@ class MapScreenState extends State<MapScreen> {
         ],
       ),
     );
+  }
+
+  Marker _buildMarker(Tracker tracker, TrackerPosition position) {
+    // Marker tappabile: apre Google Maps e fa anche flyTo
+    return Marker(
+      point: LatLng(position.latitude, position.longitude),
+      width: 44,
+      height: 44,
+      alignment: Alignment.center,
+      child: GestureDetector(
+        onTap: () async {
+          await _flyToPosition(position.latitude, position.longitude, 16.0);
+          await _onMarkerTap(position);
+        },
+        child: _buildMarkerIcon(
+          color: Color(tracker.color),
+          label: tracker.name,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMarkerIcon({
+    required Color color,
+    required String label,
+  }) {
+    // Fallback semplice: pallino circolare con label (nome tracker)
+    // Se vuoi usare l’icona SDF, puoi sostituire con Image.memory(_markerImageBytes!)
+    final textColor = Themes.theme().textTheme.bodyLarge?.color ?? Colors.white;
+    final borderColor = Themes.theme().textTheme.titleSmall?.color ?? Colors.black;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        boxShadow: const [
+          BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
+        ],
+      ),
+      padding: const EdgeInsets.all(4),
+      alignment: Alignment.center,
+      child: Text(
+        _shorten(label),
+        textAlign: TextAlign.center,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 10,
+          color: textColor,
+          fontWeight: FontWeight.w700,
+          shadows: [
+            Shadow(
+              blurRadius: 2,
+              color: borderColor.withOpacity(0.8),
+              offset: const Offset(0, 0),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _shorten(String s) {
+    if (s.length <= 4) return s;
+    return s.substring(0, 4).toUpperCase();
   }
 }
