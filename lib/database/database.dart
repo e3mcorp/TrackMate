@@ -29,6 +29,9 @@ class DataBase {
     return DataBase.db;
   }
 
+
+
+
   /// Get path of the database file.
   static Future<String> getPath() async {
     return join(await getDatabasesPath(), DataBase.name);

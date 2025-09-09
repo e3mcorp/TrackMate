@@ -1,517 +1,816 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:trackmate/data/tracker.dart';
 import 'package:trackmate/database/database.dart';
 import 'package:trackmate/database/tracker_db.dart';
-import 'package:trackmate/locale/app_localizations.dart';
-import 'package:trackmate/screens/setup/setup_steps.dart';
-import 'package:trackmate/screens/setup/setup_models.dart';
-import 'package:trackmate/screens/setup/setup_commands.dart';
+import 'package:trackmate/utils/sms.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 
-enum SetupMode { firstDevice, addDevice }
+enum SetupMode { firstDevice, addOrEdit }
 
 class SetupWizardScreen extends StatefulWidget {
   final SetupMode mode;
+  final Tracker? initial;
   final VoidCallback? onComplete;
 
   const SetupWizardScreen({
-    required this.mode,
-    this.onComplete,
     super.key,
+    required this.mode,
+    this.initial,
+    this.onComplete,
   });
-
-  static Future<SetupMode> detectSetupMode() async {
-    final db = await DataBase.get();
-    final trackers = await TrackerDB.list(db!);
-    return trackers.isEmpty ? SetupMode.firstDevice : SetupMode.addDevice;
-  }
-
-  static Future<void> showSetupWizard(BuildContext context) async {
-    final mode = await detectSetupMode();
-    if (!context.mounted) return;
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, _) => SetupWizardScreen(mode: mode),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return SlideTransition(
-            position: animation.drive(
-              Tween(begin: const Offset(1.0, 0.0), end: Offset.zero)
-                  .chain(CurveTween(curve: Curves.easeOutCubic)),
-            ),
-            child: child,
-          );
-        },
-        transitionDuration: const Duration(milliseconds: 500),
-      ),
-    );
-  }
 
   @override
   State<SetupWizardScreen> createState() => _SetupWizardScreenState();
 }
 
-class _SetupWizardScreenState extends State<SetupWizardScreen>
-    with TickerProviderStateMixin {
+class _SetupWizardScreenState extends State<SetupWizardScreen> {
   final PageController _pageController = PageController();
-  late final AnimationController _progressController;
-  late final Animation<double> _progressAnimation;
-
+  final _formKeys = List.generate(6, (_) => GlobalKey<FormState>());
   int _currentStep = 0;
-  int get _totalSteps => widget.mode == SetupMode.firstDevice ? 5 : 4;
+  bool _isLoading = false;
+  bool _isSendingSMS = false;
+  bool _timezoneInitialized = false;
+  late Tracker tracker;
 
-  late final SetupData _setupData;
-  late final SetupCommands _setupCommands;
-  late final List<GlobalKey<FormState>> _formKeys;
-  bool _sending = false;
+  // Controllers
+  late final TextEditingController nameCtrl;
+  late final TextEditingController plateCtrl;
+  late final TextEditingController modelCtrl;
+  late Color color;
+  late final TextEditingController phoneCtrl;
+  late final TextEditingController adminCtrl;
+  late final TextEditingController pinCtrl;
+  late final TextEditingController apnCtrl;
+  late final TextEditingController apnUserCtrl;
+  late final TextEditingController apnPassCtrl;
+  late final TextEditingController speedCtrl;
+  bool ignitionAlarm = false;
+  bool powerAlarmSMS = false;
+  bool powerAlarmCall = false;
+
+  // Timezone management
+  String _selectedTimezone = 'Europe/Rome';
+  List<Map<String, String>> _allTimezones = [];
+  List<Map<String, String>> _filteredTimezones = [];
+  final TextEditingController _timezoneSearchCtrl = TextEditingController();
+
+  // SMS Configuration
+  final List<String> _configurationSteps = [];
+  final Map<String, bool> _smsStatus = {};
 
   @override
   void initState() {
     super.initState();
-    _setupData = SetupData();
-    _setupCommands = SetupCommands(_setupData);
-    _setupAnimations();
-    _formKeys = List.generate(_totalSteps, (_) => GlobalKey<FormState>());
-    _restoreProgress();
-    _prefillDefaults();
+    tracker = widget.initial != null ? Tracker.fromMap(widget.initial!.toMap()) : Tracker();
+    _initializeControllers();
+    _initializeTimezone();
+
+    _timezoneSearchCtrl.addListener(() {
+      _filterTimezones(_timezoneSearchCtrl.text);
+    });
   }
 
-  void _setupAnimations() {
-    _progressController = AnimationController(
-      duration: const Duration(milliseconds: 400),
-      vsync: this,
-    );
-    _progressAnimation = CurvedAnimation(
-      parent: _progressController,
-      curve: Curves.easeOutCubic,
-    );
-    _progressController.forward();
+  void _initializeControllers() {
+    nameCtrl = TextEditingController(text: tracker.name);
+    plateCtrl = TextEditingController(text: tracker.licensePlate);
+    modelCtrl = TextEditingController(text: tracker.model);
+    color = Color(tracker.color);
+    phoneCtrl = TextEditingController(text: tracker.phoneNumber);
+    adminCtrl = TextEditingController(text: tracker.adminNumber);
+    pinCtrl = TextEditingController(text: tracker.pin.isEmpty ? '123456' : tracker.pin);
+    apnCtrl = TextEditingController(text: tracker.apn);
+    apnUserCtrl = TextEditingController();
+    apnPassCtrl = TextEditingController();
+    speedCtrl = TextEditingController(text: tracker.speedLimit > 0 ? tracker.speedLimit.toString() : '');
+    ignitionAlarm = tracker.ignitionAlarm;
+    powerAlarmSMS = tracker.powerAlarmSMS;
+    powerAlarmCall = tracker.powerAlarmCall;
   }
 
   @override
   void dispose() {
     _pageController.dispose();
-    _progressController.dispose();
-    _setupData.dispose();
+    nameCtrl.dispose();
+    plateCtrl.dispose();
+    modelCtrl.dispose();
+    phoneCtrl.dispose();
+    adminCtrl.dispose();
+    pinCtrl.dispose();
+    apnCtrl.dispose();
+    apnUserCtrl.dispose();
+    apnPassCtrl.dispose();
+    speedCtrl.dispose();
+    _timezoneSearchCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _restoreProgress() async {
-    final sp = await SharedPreferences.getInstance();
-    final key = widget.mode == SetupMode.firstDevice ? 'setup_step' : 'add_step';
-    final step = sp.getInt(key) ?? 0;
-    if (step < _totalSteps) {
-      setState(() => _currentStep = step);
-    }
-  }
-
-  Future<void> _persistProgress() async {
-    final sp = await SharedPreferences.getInstance();
-    final key = widget.mode == SetupMode.firstDevice ? 'setup_step' : 'add_step';
-    await sp.setInt(key, _currentStep);
-  }
-
-  Future<void> _prefillDefaults() async {
-    if (widget.mode == SetupMode.addDevice) {
-      final db = await DataBase.get();
-      final existing = await TrackerDB.list(db!);
-      if (existing.isNotEmpty) {
-        final first = existing.first;
-        _setupData.apnController.text = first.apn;
-        _setupData.useExistingConfig = true;
-      }
-    }
-  }
-
-  Future<void> _next() async {
-    final formIndex = _getFormIndex();
-    if (formIndex >= 0 && formIndex < _formKeys.length) {
-      final form = _formKeys[formIndex].currentState;
-      if (form != null && !form.validate()) {
-        _showValidationError();
-        return;
-      }
-      form?.save();
-    }
-
-    if (_currentStep < _totalSteps - 1) {
-      setState(() => _currentStep++);
-      await _persistProgress();
-      await _pageController.nextPage(
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOutCubic,
-      );
-      HapticFeedback.lightImpact();
-    } else {
-      await _finish();
-    }
-  }
-
-  Future<void> _back() async {
-    if (_currentStep > 0) {
-      setState(() => _currentStep--);
-      await _persistProgress();
-      await _pageController.previousPage(
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOutCubic,
-      );
-      HapticFeedback.lightImpact();
-    }
-  }
-
-  int _getFormIndex() {
-    if (widget.mode == SetupMode.firstDevice) {
-      if (_currentStep == 1) return 0; // Device data
-      if (_currentStep == 2) return 1; // Network config
-      if (_currentStep == 3) return 2; // Admin number
-    } else {
-      if (_currentStep == 0) return 0; // Quick device
-      if (_currentStep == 1) return 1; // Quick config
-      if (_currentStep == 1) return 2; // Quick config
-    }
-    return -1;
-  }
-
-  void _showValidationError() {
-    final localizations = AppLocalizations.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.error_outline, color: Colors.white),
-            const SizedBox(width: 12),
-            Text(localizations?.get('pleaseFixErrors') ?? 'Please fix the errors above'),
-          ],
-        ),
-        backgroundColor: Theme.of(context).colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  Future<void> _sendCommand(String commandType) async {
-    if (_sending) return;
-    setState(() => _sending = true);
+  Future<void> _initializeTimezone() async {
     try {
-      await _setupCommands.sendCommand(commandType, context);
-      _showSuccessSnackBar('${commandType}Sent');
-    } catch (e) {
-      _showErrorSnackBar('Failed to send $commandType: $e');
-    } finally {
-      setState(() => _sending = false);
-    }
-  }
-
-  Future<void> _testConnection() async {
-    if (_sending) return;
-    setState(() => _sending = true);
-    try {
-      await _setupCommands.testConnection(context);
-      _showSuccessSnackBar('testSent');
-    } catch (e) {
-      _showErrorSnackBar('Test failed: $e');
-    } finally {
-      setState(() => _sending = false);
-    }
-  }
-
-  void _showSuccessSnackBar(String messageKey) {
-    final localizations = AppLocalizations.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle, color: Colors.white),
-            const SizedBox(width: 12),
-            Text(localizations?.get(messageKey) ?? messageKey),
-          ],
-        ),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.error_outline, color: Colors.white),
-            const SizedBox(width: 12),
-            Expanded(child: Text(message)),
-          ],
-        ),
-        backgroundColor: Theme.of(context).colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  // ✅ METODO _FINISH COMPLETAMENTE CORRETTO CON ADMIN_NUMBER
-  Future<void> _finish() async {
-    setState(() => _sending = true);
-
-    try {
-      // ✅ CREA TRACKER con TUTTI i campi necessari incluso adminNumber
-      final tracker = Tracker()
-        ..name = _setupData.nameController.text.trim()
-        ..phoneNumber = _setupData.trackerPhoneController.text.trim()
-        ..pin = _setupData.pinController.text.trim()
-        ..adminNumber = _setupData.adminPhoneController.text.trim() // ✅ puo essere vuoto
-        ..apn = _setupData.apnController.text.trim();
-
-      if (kDebugMode) {
-        print('✅ Setup Wizard - Salvando tracker:');
-        print('  Nome: ${tracker.name}');
-        print('  Phone: ${tracker.phoneNumber}');
-        print('  Admin: ${tracker.adminNumber}'); // ✅ Verifichiamo che sia presente
-        print('  PIN: ${tracker.pin}');
-        print('  APN: ${tracker.apn}');
-      }
-
-      final db = await DataBase.get();
-      await TrackerDB.add(db!, tracker);
-
-      // ✅ PULISCI SharedPreferences
-      final sp = await SharedPreferences.getInstance();
-      if (widget.mode == SetupMode.firstDevice) {
-        await sp.setBool('setup_done', true);
-        await sp.remove('setup_step');
-      } else {
-        await sp.remove('add_step');
-      }
-
-      if (!mounted) return;
-
-      // ✅ FEEDBACK UTENTE
-      HapticFeedback.mediumImpact();
-
-      // ✅ NAVIGAZIONE CORRETTA
-      if (widget.onComplete != null) {
-        widget.onComplete!();
-      } else {
-        Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
-      }
-
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Setup Error: $e');
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Attenzione: ${e.toString()}'),
-            backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-
-        // ✅ NAVIGA ALLA HOME anche in caso di errore
-        if (widget.onComplete != null) {
-          widget.onComplete!();
+      tz.initializeTimeZones();
+      final locations = tz.timeZoneDatabase.locations;
+      _allTimezones = locations.entries.map((entry) {
+        final location = entry.value;
+        final now = tz.TZDateTime.now(location);
+        final offset = now.timeZoneOffset;
+        final offsetHours = offset.inHours;
+        final offsetMinutes = (offset.inMinutes % 60).abs();
+        String offsetString;
+        if (offsetMinutes == 0) {
+          offsetString = 'GMT${offsetHours >= 0 ? '+' : ''}$offsetHours';
         } else {
-          Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+          offsetString = 'GMT${offsetHours >= 0 ? '+' : ''}$offsetHours:${offsetMinutes.toString().padLeft(2, '0')}';
+        }
+        return {'name': '${entry.key} ($offsetString)', 'value': entry.key};
+      }).toList();
+
+      _allTimezones.sort((a, b) {
+        final aIsEurope = a['value']!.startsWith('Europe/');
+        final bIsEurope = b['value']!.startsWith('Europe/');
+        if (aIsEurope && !bIsEurope) return -1;
+        if (!aIsEurope && bIsEurope) return 1;
+        final aIsRome = a['value'] == 'Europe/Rome';
+        final bIsRome = b['value'] == 'Europe/Rome';
+        if (aIsRome && !bIsRome) return -1;
+        if (!aIsRome && bIsRome) return 1;
+        return a['value']!.compareTo(b['value']!);
+      });
+
+      _filteredTimezones = List.from(_allTimezones);
+
+      try {
+        final deviceTimezone = DateTime.now().timeZoneName;
+        if (deviceTimezone.contains('CEST') || deviceTimezone.contains('CET')) {
+          _selectedTimezone = 'Europe/Rome';
+        }
+      } catch (_) {}
+
+      setState(() => _timezoneInitialized = true);
+    } catch (e) {
+      _selectedTimezone = 'UTC';
+      _allTimezones = [{'name': 'Europe/Rome (GMT+1)', 'value': 'Europe/Rome'}, {'name': 'UTC (GMT+0)', 'value': 'UTC'}];
+      _filteredTimezones = List.from(_allTimezones);
+      setState(() => _timezoneInitialized = true);
+    }
+    // ❌ RIMOSSO: Non chiamare _prepareConfigurationSteps() qui!
+  }
+
+  void _filterTimezones(String query) {
+    setState(() {
+      _filteredTimezones = query.isEmpty
+          ? List.from(_allTimezones)
+          : _allTimezones.where((tz) => tz['name']!.toLowerCase().contains(query.toLowerCase())).toList();
+    });
+  }
+
+  String _generateTimezoneCommand(String timezoneName) {
+    try {
+      final location = tz.getLocation(timezoneName);
+      final offset = tz.TZDateTime.now(location).timeZoneOffset;
+      final direction = !offset.isNegative ? 'E' : 'W';
+      final totalMinutes = offset.inMinutes.abs();
+      final hours = totalMinutes ~/ 60;
+      final minutes = totalMinutes % 60;
+      int validMinutes = [0, 15, 30, 45].reduce((a, b) => (minutes - a).abs() < (minutes - b).abs() ? a : b);
+      return 'GMT,$direction,$hours${validMinutes > 0 ? ',$validMinutes' : ''}#';
+    } catch (e) {
+      return 'GMT,E,1#';
+    }
+  }
+
+  // ✅ CORRETTO: Questa funzione ora legge i valori ATTUALI dai controller
+  void _prepareConfigurationSteps() {
+    _configurationSteps.clear();
+    _smsStatus.clear();
+
+    // Leggi i valori ATTUALI dai controller
+    final currentApn = apnCtrl.text.trim();
+    final currentApnUser = apnUserCtrl.text.trim();
+    final currentApnPass = apnPassCtrl.text.trim();
+    final currentAdmin = adminCtrl.text.trim();
+    final currentPin = pinCtrl.text.trim().isEmpty ? '123456' : pinCtrl.text.trim();
+    final currentSpeed = speedCtrl.text.trim();
+
+    if (currentApn.isNotEmpty) {
+      _configurationSteps.add(currentApnUser.isNotEmpty && currentApnPass.isNotEmpty
+          ? 'APN,$currentApn,$currentApnUser,$currentApnPass#'
+          : 'APN,$currentApn#');
+    }
+
+    if (currentAdmin.isNotEmpty) {
+      _configurationSteps.add('CENTER,$currentPin,A,$currentAdmin#');
+    }
+
+    if (currentSpeed.isNotEmpty) {
+      final int speedLimit = int.tryParse(currentSpeed) ?? 0;
+      if (speedLimit > 0) {
+        _configurationSteps.add('SPEED,ON,$speedLimit,1#');
+      }
+    }
+
+    if (ignitionAlarm) {
+      _configurationSteps.add('ACCALM,ON,2,1#');
+    }
+
+    if (powerAlarmSMS || powerAlarmCall) {
+      _configurationSteps.add('PWRALM,ON,${powerAlarmCall ? 2 : 1}#');
+    }
+
+    // Aggiungi sempre il comando timezone
+    _configurationSteps.add(_generateTimezoneCommand(_selectedTimezone));
+
+    for (String step in _configurationSteps) {
+      _smsStatus[step] = false;
+    }
+  }
+
+  bool _validateCurrentStep() => _formKeys[_currentStep].currentState?.validate() ?? false;
+
+  Future<void> _persist() async {
+    setState(() => _isLoading = true);
+    try {
+      tracker
+        ..name = nameCtrl.text.trim().isEmpty ? 'Tracker' : nameCtrl.text.trim()
+        ..licensePlate = plateCtrl.text.trim()
+        ..model = modelCtrl.text.trim()
+        ..color = color.value
+        ..phoneNumber = phoneCtrl.text.trim()
+        ..adminNumber = adminCtrl.text.trim()
+        ..pin = (pinCtrl.text.trim().isEmpty ? '123456' : pinCtrl.text.trim())
+        ..apn = apnCtrl.text.trim()
+        ..ignitionAlarm = ignitionAlarm
+        ..powerAlarmSMS = powerAlarmSMS
+        ..powerAlarmCall = powerAlarmCall
+        ..speedLimit = int.tryParse(speedCtrl.text.trim()) ?? 0
+        ..timestamp = DateTime.now();
+
+      final db = await DataBase.get();
+      if (widget.initial == null) {
+        await TrackerDB.add(db!, tracker);
+      } else {
+        await TrackerDB.update(db!, tracker);
+      }
+      TrackerDB.changeNotifier.notifyListeners();
+    } catch (e) {
+      if (mounted) _showError('Errore nel salvataggio: $e');
+      return;
+    } finally {
+      setState(() => _isLoading = false);
+    }
+    widget.onComplete?.call();
+    if (mounted) Navigator.of(context).pop(tracker);
+  }
+
+  void _nextStep() async {
+    if (!_validateCurrentStep()) return;
+
+    // ✅ CORRETTO: Prepara i comandi SMS solo quando si arriva al step 4
+    if (_currentStep == 3) { // Quando si passa da step 3 (Allarmi) a step 4 (SMS)
+      _prepareConfigurationSteps();
+    }
+
+    if (_currentStep < 5) {
+      _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      setState(() => _currentStep++);
+    } else {
+      await _persist();
+    }
+  }
+
+  void _previousStep() {
+    if (_currentStep > 0) {
+      _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      setState(() => _currentStep--);
+    }
+  }
+
+  void _onStepTapped(int step) {
+    setState(() => _currentStep = step);
+    _pageController.animateToPage(step, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+  }
+
+  Future<void> _sendConfigurationSMS(String command) async {
+    if (phoneCtrl.text.trim().isEmpty) {
+      _showError('Numero SIM del tracker non configurato');
+      return;
+    }
+    setState(() => _isSendingSMS = true);
+    try {
+      if (!await SMSUtils.hasPermissions()) {
+        if (!await SMSUtils.requestPermissions()) {
+          _showError('Permessi SMS necessari');
+          return;
         }
       }
-
-    } finally {
+      await SMSUtils.send(command, phoneCtrl.text.trim(), context: context);
+      setState(() => _smsStatus[command] = true);
       if (mounted) {
-        setState(() => _sending = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Comando inviato: ${command.substring(0, command.indexOf('#'))}'),
+          backgroundColor: Colors.green, duration: const Duration(seconds: 2),
+        ));
+      }
+    } catch (e) {
+      _showError('Errore invio SMS: $e');
+    } finally {
+      setState(() => _isSendingSMS = false);
+    }
+  }
+
+  Future<void> _sendAllConfigurationSMS() async {
+    for (String command in _configurationSteps) {
+      if (!(_smsStatus[command] ?? false)) {
+        await _sendConfigurationSMS(command);
+        await Future.delayed(const Duration(seconds: 2));
       }
     }
   }
 
-  List<Widget> _buildSteps() {
-    if (widget.mode == SetupMode.firstDevice) {
-      return [
-        WelcomeStep(),
-        DeviceDataStep(
-          formKey: _formKeys[0],
-          setupData: _setupData,
-        ),
-        NetworkConfigStep(
-          formKey: _formKeys[1],
-          setupData: _setupData,
-          onSendCommand: _sendCommand,
-          isSending: _sending,
-        ),
-        AdminNumberStep(
-          formKey: _formKeys[2],
-          setupData: _setupData,
-          onSendCommand: _sendCommand,
-          isSending: _sending,
-        ),
-        TestAndFinishStep(
-          setupData: _setupData,
-          onTest: _testConnection,
-          isSending: _sending,
-        ),
-      ];
-    } else {
-      return [
-        QuickDeviceStep(
-          formKey: _formKeys[0],
-          setupData: _setupData,
-        ),
-        QuickConfigStep(
-          formKey: _formKeys[1],
-          setupData: _setupData,
-          onSendCommand: _sendCommand,
-          isSending: _sending,
-        ),
-        AdminNumberStep(
-          formKey: _formKeys[2],
-          setupData: _setupData,
-          onSendCommand: _sendCommand,
-          isSending: _sending,
-        ),
-        QuickFinishStep(
-          setupData: _setupData,
-          onTest: _testConnection,
-          isSending: _sending,
-        ),
-      ];
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(message),
+        backgroundColor: Theme.of(context).colorScheme.error,
+      ));
     }
+  }
+
+  Future<void> _showTimezonePicker() async {
+    _timezoneSearchCtrl.clear();
+    _filterTimezones('');
+    final selected = await showModalBottomSheet<String>(
+      context: context, isScrollControlled: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter modalState) {
+            void filter(String query) {
+              modalState(() {
+                _filteredTimezones = query.isEmpty
+                    ? List.from(_allTimezones)
+                    : _allTimezones.where((tz) => tz['name']!.toLowerCase().contains(query.toLowerCase())).toList();
+              });
+            }
+            return DraggableScrollableSheet(
+              expand: false, initialChildSize: 0.8, maxChildSize: 0.9,
+              builder: (_, scrollController) {
+                return Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: TextField(
+                        controller: _timezoneSearchCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'Cerca per città o regione...',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          suffixIcon: _timezoneSearchCtrl.text.isNotEmpty ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () { _timezoneSearchCtrl.clear(); filter(''); },
+                          ) : null,
+                        ),
+                        onChanged: filter,
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        controller: scrollController,
+                        itemCount: _filteredTimezones.length,
+                        itemBuilder: (context, index) {
+                          final timezone = _filteredTimezones[index];
+                          return ListTile(
+                            title: Text(timezone['name']!),
+                            onTap: () => Navigator.of(context).pop(timezone['value']),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+    if (selected != null) setState(() => _selectedTimezone = selected);
   }
 
   @override
   Widget build(BuildContext context) {
-    final localizations = AppLocalizations.of(context);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final canBack = _currentStep > 0;
-    final isLast = _currentStep == _totalSteps - 1;
-
-    final title = widget.mode == SetupMode.firstDevice
-        ? localizations?.get('welcomeToTrackMate') ?? 'Welcome to TrackMate'
-        : localizations?.get('addTracker') ?? 'Add Tracker';
-
     return Scaffold(
-      backgroundColor: colorScheme.surface,
       appBar: AppBar(
-        title: Text(title),
+        title: Text(widget.initial == null ? 'Aggiungi Tracker' : 'Modifica Tracker'),
+        elevation: 0,
         backgroundColor: colorScheme.surface,
         foregroundColor: colorScheme.onSurface,
-        elevation: 0,
-        surfaceTintColor: colorScheme.surfaceTint,
-        leading: canBack
-            ? IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: _sending ? null : _back,
-        )
-            : null,
       ),
       body: Column(
         children: [
-          // Progress indicator
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Column(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: Row(
+              children: List.generate(6, (index) => Expanded(
+                child: Container(
+                  margin: EdgeInsets.only(right: index < 5 ? 8 : 0),
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: index <= _currentStep ? colorScheme.primary : colorScheme.outline.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              )),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                AnimatedBuilder(
-                  animation: _progressAnimation,
-                  builder: (context, child) {
-                    return LinearProgressIndicator(
-                      value: (_currentStep + 1) / _totalSteps * _progressAnimation.value,
-                      backgroundColor: colorScheme.surfaceVariant,
-                      valueColor: AlwaysStoppedAnimation(colorScheme.primary),
-                      minHeight: 4,
-                    );
-                  },
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      '${localizations?.get('step') ?? 'Step'} ${_currentStep + 1} ${localizations?.get('of') ?? 'of'} $_totalSteps',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    Text(
-                      '${((_currentStep + 1) / _totalSteps * 100).round()}%',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
+                _buildStepLabel('Base', 0), _buildStepLabel('SIM', 1), _buildStepLabel('Fuso', 2),
+                _buildStepLabel('Allarmi', 3), _buildStepLabel('SMS', 4), _buildStepLabel('Fine', 5),
               ],
             ),
           ),
-          // Steps content
           Expanded(
             child: PageView(
               controller: _pageController,
-              physics: const NeverScrollableScrollPhysics(),
-              children: _buildSteps(),
+              onPageChanged: (step) => setState(() => _currentStep = step),
+              children: [
+                _buildStepOne(), _buildStepTwo(), _buildTimezoneStep(),
+                _buildStepThree(), _buildStepFour(), _buildStepFive(),
+              ],
+            ),
+          ),
+          SafeArea(
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                border: Border(top: BorderSide(color: colorScheme.outline.withOpacity(0.2), width: 1)),
+              ),
+              child: Row(
+                children: [
+                  if (_currentStep > 0)
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: (_isLoading || _isSendingSMS) ? null : _previousStep,
+                        child: const Text('Indietro'),
+                      ),
+                    ),
+                  if (_currentStep > 0) const SizedBox(width: 16),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: (_isLoading || _isSendingSMS) ? null : _nextStep,
+                      child: (_isLoading || _isSendingSMS)
+                          ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                          : Text(_currentStep == 5 ? 'Salva' : 'Avanti'),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: colorScheme.surface,
-          boxShadow: [
-            BoxShadow(
-              color: colorScheme.shadow.withOpacity(0.1),
-              blurRadius: 8,
-              offset: const Offset(0, -2),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                if (canBack) ...[
-                  OutlinedButton.icon(
-                    onPressed: _sending ? null : _back,
-                    icon: const Icon(Icons.chevron_left),
-                    label: Text(localizations?.get('back') ?? 'Back'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: colorScheme.onSurface,
-                      side: BorderSide(color: colorScheme.outline),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                ],
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: _sending ? null : (isLast ? _finish : _next),
-                    icon: _sending
-                        ? SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation(colorScheme.onPrimary),
-                      ),
-                    )
-                        : Icon(isLast ? Icons.check : Icons.chevron_right),
-                    label: Text(
-                      isLast
-                          ? localizations?.get('complete') ?? 'Complete'
-                          : localizations?.get('next') ?? 'Next',
-                    ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: colorScheme.primary,
-                      foregroundColor: colorScheme.onPrimary,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+    );
+  }
+
+  Widget _buildStepLabel(String text, int stepIndex) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isActive = stepIndex == _currentStep;
+    final isCompleted = stepIndex < _currentStep;
+    return InkWell(
+      onTap: () => _onStepTapped(stepIndex),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+            color: isActive || isCompleted ? colorScheme.primary : colorScheme.onSurface.withOpacity(0.6),
           ),
+          textAlign: TextAlign.center,
         ),
       ),
     );
+  }
+
+  Widget _buildStepOne() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Form(
+        key: _formKeys[0],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Informazioni Base', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text('Inserisci le informazioni di base del tracker', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+            const SizedBox(height: 32),
+            TextFormField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Nome tracker', hintText: 'es. Auto Marco', prefixIcon: Icon(Icons.label_outline)), validator: (v) => (v == null || v.trim().isEmpty) ? 'Inserire un nome' : null),
+            const SizedBox(height: 24),
+            TextFormField(controller: plateCtrl, decoration: const InputDecoration(labelText: 'Targa (opzionale)', hintText: 'es. AB123CD', prefixIcon: Icon(Icons.directions_car_outlined))),
+            const SizedBox(height: 24),
+            TextFormField(controller: modelCtrl, decoration: const InputDecoration(labelText: 'Modello veicolo (opzionale)', hintText: 'es. Fiat Panda', prefixIcon: Icon(Icons.info_outline))),
+            const SizedBox(height: 32),
+            Text('Colore identificativo', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              children: [
+                Colors.red, Colors.blue, Colors.green, Colors.orange, Colors.purple, Colors.teal, Colors.pink, Colors.brown,
+              ].map((c) => GestureDetector(
+                onTap: () => setState(() => color = c),
+                child: Container(
+                  width: 48, height: 48,
+                  decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: color.value == c.value ? Border.all(color: Colors.black, width: 3) : null),
+                  child: color.value == c.value ? const Icon(Icons.check, color: Colors.white) : null,
+                ),
+              )).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStepTwo() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Form(
+        key: _formKeys[1],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Configurazione SIM', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text('Configura la SIM card e i parametri di connessione', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+            const SizedBox(height: 32),
+            TextFormField(controller: phoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Numero SIM del tracker *', hintText: '+39 123 456 7890', prefixIcon: Icon(Icons.sim_card_outlined), helperText: 'Necessario per inviare comandi SMS'), validator: (v) => (v == null || v.trim().isEmpty) ? 'Inserire numero SIM' : null),
+            const SizedBox(height: 24),
+            TextFormField(controller: adminCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Numero amministratore (opzionale)', hintText: '+39 987 654 3210', prefixIcon: Icon(Icons.admin_panel_settings_outlined), helperText: 'Numero che può inviare comandi al tracker')),
+            const SizedBox(height: 24),
+            TextFormField(controller: pinCtrl, decoration: const InputDecoration(labelText: 'PIN comandi', hintText: '123456', prefixIcon: Icon(Icons.lock_outline), helperText: 'PIN per i comandi (default: 123456)'), validator: (v) => (v?.trim() ?? '').isNotEmpty && (v!.length != 6 || int.tryParse(v) == null) ? 'PIN deve essere 6 cifre' : null),
+            const SizedBox(height: 32),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Configurazione APN', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 16),
+                    TextFormField(controller: apnCtrl, decoration: const InputDecoration(labelText: 'APN', hintText: 'internet.it, mobile.vodafone.it', prefixIcon: Icon(Icons.network_cell_outlined))),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(child: TextFormField(controller: apnUserCtrl, decoration: const InputDecoration(labelText: 'Username (opzionale)', prefixIcon: Icon(Icons.person_outline)))),
+                        const SizedBox(width: 16),
+                        Expanded(child: TextFormField(controller: apnPassCtrl, obscureText: true, decoration: const InputDecoration(labelText: 'Password (opzionale)', prefixIcon: Icon(Icons.lock_outline)))),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTimezoneStep() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Form(
+        key: _formKeys[2],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Fuso Orario', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text('Seleziona il fuso orario del tracker', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+            const SizedBox(height: 32),
+            ListTile(
+              title: Text(_selectedTimezone, style: Theme.of(context).textTheme.titleMedium),
+              subtitle: const Text('Fuso Orario Selezionato'),
+              leading: Icon(Icons.public, color: Theme.of(context).colorScheme.primary),
+              trailing: const Icon(Icons.arrow_drop_down),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Theme.of(context).colorScheme.outline)),
+              onTap: _timezoneInitialized ? _showTimezonePicker : null,
+            ),
+            const SizedBox(height: 24),
+            if (_timezoneInitialized)
+              Card(
+                color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Comando SMS che verrà inviato:', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: Theme.of(context).colorScheme.outline.withOpacity(0.3))),
+                        child: Text(_generateTimezoneCommand(_selectedTimezone), style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontFamily: 'monospace', fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStepThree() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Form(
+        key: _formKeys[3],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Configurazione Allarmi', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text('Configura gli allarmi e le notifiche del tracker', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+            const SizedBox(height: 32),
+            TextFormField(
+              controller: speedCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Limite velocità (km/h)', hintText: 'Vuoto per disattivare', prefixIcon: Icon(Icons.speed_outlined), suffixText: 'km/h'),
+              validator: (v) {
+                if ((v?.trim() ?? '').isEmpty) return null;
+                if (int.tryParse(v!) == null || int.parse(v) <= 0) return 'Inserire numero valido';
+                return null;
+              },
+            ),
+            const SizedBox(height: 32),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    SwitchListTile(title: const Text('Allarme accensione (ACC)'), subtitle: const Text('Notifica all\'accensione/spegnimento'), value: ignitionAlarm, onChanged: (val) => setState(() => ignitionAlarm = val)),
+                    const Divider(),
+                    SwitchListTile(title: const Text('Allarme alimentazione (SMS)'), subtitle: const Text('SMS se si stacca la batteria'), value: powerAlarmSMS, onChanged: (val) => setState(() => powerAlarmSMS = val)),
+                    const Divider(),
+                    SwitchListTile(title: const Text('Allarme alimentazione (Chiamata)'), subtitle: const Text('Chiamata se si stacca la batteria'), value: powerAlarmCall, onChanged: (val) => setState(() => powerAlarmCall = val)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStepFour() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Form(
+        key: _formKeys[4],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Configurazione via SMS', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text('Invia i comandi per configurare il tracker', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+            const SizedBox(height: 32),
+            if (_configurationSteps.isEmpty)
+              Card(
+                color: Theme.of(context).colorScheme.surfaceVariant,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Icon(Icons.info_outline, size: 48, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      const SizedBox(height: 16),
+                      Text('Nessuna configurazione necessaria', style: Theme.of(context).textTheme.titleMedium, textAlign: TextAlign.center),
+                      const SizedBox(height: 8),
+                      Text('Il tracker può essere utilizzato con le impostazioni di default', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)), textAlign: TextAlign.center),
+                    ],
+                  ),
+                ),
+              )
+            else
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Comandi da inviare:', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 16),
+                      ..._configurationSteps.map((command) {
+                        final isCompleted = _smsStatus[command] ?? false;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              Icon(isCompleted ? Icons.check_circle : Icons.radio_button_unchecked, color: isCompleted ? Colors.green : Theme.of(context).colorScheme.outline, size: 20),
+                              const SizedBox(width: 12),
+                              Expanded(child: Text(_getCommandDescription(command), style: Theme.of(context).textTheme.bodyMedium?.copyWith(decoration: isCompleted ? TextDecoration.lineThrough : null))),
+                              IconButton(icon: const Icon(Icons.send, size: 20), onPressed: (_isSendingSMS || isCompleted) ? null : () => _sendConfigurationSMS(command)),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 24),
+            if (_configurationSteps.isNotEmpty)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: (_isSendingSMS || _configurationSteps.every((cmd) => _smsStatus[cmd] == true)) ? null : _sendAllConfigurationSMS,
+                  icon: _isSendingSMS ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send),
+                  label: Text(_isSendingSMS ? 'Invio in corso...' : 'Invia tutti i comandi'),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStepFive() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Form(
+        key: _formKeys[5],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Configurazione Completata', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 32),
+            Card(
+              color: Colors.green.withOpacity(0.1),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    const Icon(Icons.check_circle, color: Colors.green, size: 48),
+                    const SizedBox(height: 16),
+                    Text('Tracker pronto!', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Colors.green[700], fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Text('Premi "Salva" per completare la configurazione.', style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Riepilogo Configurazione', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 16),
+                    _buildSummaryRow('Nome', nameCtrl.text.trim().isEmpty ? 'Tracker' : nameCtrl.text.trim()),
+                    _buildSummaryRow('Numero SIM', phoneCtrl.text.trim()),
+                    _buildSummaryRow('Fuso orario', _selectedTimezone),
+                    if (apnCtrl.text.trim().isNotEmpty) _buildSummaryRow('APN', apnCtrl.text.trim()),
+                    _buildSummaryRow('Comandi SMS inviati', '${_smsStatus.values.where((v) => v).length}/${_configurationSteps.length}'),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 120, child: Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)))),
+          Expanded(child: Text(value, style: Theme.of(context).textTheme.bodyMedium)),
+        ],
+      ),
+    );
+  }
+
+  String _getCommandDescription(String command) {
+    if (command.startsWith('APN,')) return 'Configurazione APN';
+    if (command.startsWith('CENTER,')) return 'Impostazione numero admin';
+    if (command.startsWith('SPEED,')) return 'Impostazione limite velocità';
+    if (command.startsWith('ACCALM,')) return 'Attivazione allarme accensione';
+    if (command.startsWith('PWRALM,')) return 'Attivazione allarme alimentazione';
+    if (command.startsWith('GMT,')) return 'Impostazione fuso orario';
+    return command;
   }
 }

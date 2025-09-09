@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
-import 'package:provider/provider.dart';
 
 class TrackerListScreen extends StatefulWidget {
   const TrackerListScreen({super.key});
@@ -22,7 +21,6 @@ class TrackerListScreenState extends State<TrackerListScreen> with TickerProvide
   final ScrollController _scrollController = ScrollController();
   late final AnimationController _fabAnimationController;
   late final Animation<double> _fabAnimation;
-
   bool _showFab = true;
   bool _isDeleting = false;
   List<Tracker>? _cachedTrackers;
@@ -66,7 +64,6 @@ class TrackerListScreenState extends State<TrackerListScreen> with TickerProvide
 
   void _handleScroll() {
     final ScrollDirection direction = _scrollController.position.userScrollDirection;
-
     if (direction == ScrollDirection.reverse) {
       if (_showFab) {
         setState(() => _showFab = false);
@@ -92,28 +89,23 @@ class TrackerListScreenState extends State<TrackerListScreen> with TickerProvide
         preferredSize: const Size.fromHeight(0),
         child: Container(),
       ),
-      body: Consumer<TrackerNotifier>(
-        builder: (context, trackerNotifier, child) {
-          return FutureBuilder<List<Tracker>>(
-            future: _loadTrackers(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return _buildLoadingState(localizations, theme, colorScheme);
-              }
+      body: FutureBuilder<List<Tracker>>(
+        future: _loadTrackers(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return _buildLoadingState(localizations, theme, colorScheme);
+          }
 
-              if (snapshot.hasError) {
-                return _buildErrorState(snapshot.error.toString(), localizations, theme, colorScheme);
-              }
+          if (snapshot.hasError) {
+            return _buildErrorState(snapshot.error.toString(), localizations, theme, colorScheme);
+          }
 
-              final trackers = snapshot.data ?? [];
+          final trackers = snapshot.data ?? [];
+          if (trackers.isEmpty) {
+            return _buildEmptyState(localizations, theme, colorScheme);
+          }
 
-              if (trackers.isEmpty) {
-                return _buildEmptyState(localizations, theme, colorScheme);
-              }
-
-              return _buildTrackerList(trackers, localizations, theme, colorScheme);
-            },
-          );
+          return _buildTrackerList(trackers, localizations, theme, colorScheme);
         },
       ),
       floatingActionButton: ScaleTransition(
@@ -125,7 +117,7 @@ class TrackerListScreenState extends State<TrackerListScreen> with TickerProvide
 
   Widget _buildFloatingActionButton(AppLocalizations? localizations, ThemeData theme, ColorScheme colorScheme) {
     return FloatingActionButton.extended(
-      onPressed: () => SetupWizardScreen.showSetupWizard(context),
+      onPressed: () => _showSetupWizard(),
       backgroundColor: colorScheme.primaryContainer,
       foregroundColor: colorScheme.onPrimaryContainer,
       elevation: 6,
@@ -221,7 +213,7 @@ class TrackerListScreenState extends State<TrackerListScreen> with TickerProvide
             ),
             const SizedBox(height: 40),
             FilledButton.icon(
-              onPressed: () => SetupWizardScreen.showSetupWizard(context),
+              onPressed: () => _showSetupWizard(),
               icon: const Icon(Icons.auto_fix_high),
               label: Text(localizations?.get('setupWizard') ?? 'Setup Wizard'),
               style: FilledButton.styleFrom(
@@ -399,7 +391,7 @@ class TrackerListScreenState extends State<TrackerListScreen> with TickerProvide
             children: [
               Expanded(
                 child: FilledButton.tonalIcon(
-                  onPressed: () => SetupWizardScreen.showSetupWizard(context),
+                  onPressed: () => _showSetupWizard(),
                   icon: const Icon(Icons.auto_fix_high, size: 20),
                   label: Text(
                     localizations?.get('setupWizard') ?? 'Setup Wizard',
@@ -439,6 +431,15 @@ class TrackerListScreenState extends State<TrackerListScreen> with TickerProvide
             extentRatio: 0.25,
             children: [
               SlidableAction(
+                onPressed: (_) => _editTrackerWithWizard(tracker), // ✅ USA WIZARD per swipe
+                backgroundColor: colorScheme.primaryContainer,
+                foregroundColor: colorScheme.onPrimaryContainer,
+                icon: Icons.edit,
+                label: localizations?.get('edit') ?? 'Edit',
+                borderRadius: const BorderRadius.horizontal(
+                left: Radius.circular(20),
+              ),
+              /*SlidableAction(
                 onPressed: (_) => _editTracker(tracker),
                 backgroundColor: colorScheme.primaryContainer,
                 foregroundColor: colorScheme.onPrimaryContainer,
@@ -446,7 +447,7 @@ class TrackerListScreenState extends State<TrackerListScreen> with TickerProvide
                 label: localizations?.get('edit') ?? 'Edit',
                 borderRadius: const BorderRadius.horizontal(
                   left: Radius.circular(20),
-                ),
+                ),*/
               ),
             ],
           ),
@@ -554,20 +555,16 @@ class TrackerListScreenState extends State<TrackerListScreen> with TickerProvide
     if (tracker.battery > 0) {
       Color batteryColor;
       IconData batteryIcon;
-      String batteryLabel;
 
       if (tracker.battery <= 20) {
         batteryColor = colorScheme.error;
         batteryIcon = Icons.battery_alert;
-        batteryLabel = 'Low';
       } else if (tracker.battery <= 50) {
         batteryColor = colorScheme.tertiary;
         batteryIcon = Icons.battery_3_bar;
-        batteryLabel = 'Medium';
       } else {
         batteryColor = colorScheme.primary;
         batteryIcon = Icons.battery_full;
-        batteryLabel = 'Good';
       }
 
       return Container(
@@ -611,11 +608,34 @@ class TrackerListScreenState extends State<TrackerListScreen> with TickerProvide
     );
   }
 
-  void _editTracker(Tracker tracker) {
-    Navigator.push(
+  // ✅ Metodo per aprire il SetupWizard per aggiungere tracker
+  Future<void> _showSetupWizard() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const SetupWizardScreen(
+          mode: SetupMode.addOrEdit,
+        ),
+      ),
+    );
+
+    if (result != null) {
+      // Refresh cache after adding new tracker
+      _cachedTrackers = null;
+      setState(() {});
+    }
+  }
+
+
+  // ✅ NUOVO METODO per swipe edit (usa SetupWizard)
+  void _editTrackerWithWizard(Tracker tracker) async {
+    final result = await Navigator.push(
       context,
       PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => TrackerEditScreen(tracker),
+        pageBuilder: (context, animation, secondaryAnimation) => SetupWizardScreen(
+          mode: SetupMode.addOrEdit,
+          initial: tracker,
+        ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return SlideTransition(
             position: animation.drive(
@@ -627,7 +647,68 @@ class TrackerListScreenState extends State<TrackerListScreen> with TickerProvide
         },
       ),
     );
+    if (result != null) {
+      _cachedTrackers = null;
+      setState(() {});
+    }
   }
+
+/*
+  void _editTracker(Tracker tracker) async {
+    final result = await Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => SetupWizardScreen(
+          mode: SetupMode.addOrEdit,
+          initial: tracker,
+        ),
+
+
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return SlideTransition(
+            position: animation.drive(
+              Tween(begin: const Offset(1.0, 0.0), end: Offset.zero)
+                  .chain(CurveTween(curve: Curves.easeInOut)),
+            ),
+            child: child,
+          );
+        },
+      ),
+    );
+
+    if (result != null) {
+      // Refresh cache after editing tracker
+      _cachedTrackers = null;
+      setState(() {});
+    }
+  }
+*/
+
+  void _editTracker(Tracker tracker) async {
+    final result = await Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => TrackerEditScreen(tracker), // ✅ CORRETTO
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return SlideTransition(
+            position: animation.drive(
+              Tween(begin: const Offset(1.0, 0.0), end: Offset.zero)
+                  .chain(CurveTween(curve: Curves.easeInOut)),
+            ),
+            child: child,
+          );
+        },
+      ),
+    );
+    if (result != null) {
+      _cachedTrackers = null;
+      setState(() {});
+    }
+  }
+
+
+
+
 
   Future<void> _showDeleteConfirmation(Tracker tracker, AppLocalizations? localizations, ThemeData theme, ColorScheme colorScheme) async {
     final confirmed = await showDialog<bool>(
@@ -676,7 +757,6 @@ class TrackerListScreenState extends State<TrackerListScreen> with TickerProvide
 
   Future<void> _deleteTracker(Tracker tracker, AppLocalizations? localizations, ThemeData theme, ColorScheme colorScheme) async {
     if (_isDeleting) return;
-
     setState(() => _isDeleting = true);
 
     try {
