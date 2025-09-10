@@ -14,6 +14,7 @@ import 'package:trackmate/locale/app_localizations.dart';
 
 class TrackerHistoryScreen extends StatefulWidget {
   final Tracker tracker;
+
   const TrackerHistoryScreen(this.tracker, {super.key});
 
   @override
@@ -49,19 +50,23 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
     _loadPositions();
   }
 
-  Future _loadPositions() async {
+  Future<void> _loadPositions() async {
     try {
       setState(() {
         _isLoading = true;
         _error = null;
       });
+
       final db = await DataBase.get();
       final rows = await TrackerPositionDB.list(db!, widget.tracker.uuid);
+
       if (!mounted) return;
+
       setState(() {
         _positions = rows;
         _isLoading = false;
       });
+
       if (_positions.isNotEmpty) {
         await _centerOnLatest();
       }
@@ -75,15 +80,16 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
     }
   }
 
-  Future _centerOnLatest() async {
+  Future<void> _centerOnLatest() async {
     final dayPositions = _positionsOfSelectedDay;
     if (dayPositions.isEmpty) return;
+
     await Future.delayed(const Duration(milliseconds: 150));
     final latest = dayPositions.first;
     _mapController.move(LatLng(latest.latitude, latest.longitude), 15.0);
   }
 
-  List get _positionsOfSelectedDay {
+  List<TrackerPosition> get _positionsOfSelectedDay {
     if (_positions.isEmpty) return const [];
     return _positions.where((p) {
       final d = DateTime(p.timestamp.year, p.timestamp.month, p.timestamp.day);
@@ -92,7 +98,7 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
     }).toList();
   }
 
-  Future _pickDay() async {
+  Future<void> _pickDay() async {
     final daysWithData = _getDaysWithPositions();
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -116,13 +122,10 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
                 lastDay: DateTime.now().add(const Duration(days: 365)),
                 focusedDay: tempFocused,
                 selectedDayPredicate: (day) => isSameDay(tempSelected, day),
-
-                // ✅ CORREZIONE: Normalizza le date nello stesso modo
                 eventLoader: (day) {
                   final dayLocal = DateTime(day.year, day.month, day.day);
                   return daysWithData.contains(dayLocal) ? const ['gps'] : const [];
                 },
-
                 onDaySelected: (selectedDay, focusedDay) {
                   setDialogState(() {
                     tempSelected = selectedDay;
@@ -130,13 +133,8 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
                   });
                   Navigator.of(context).pop(selectedDay);
                 },
-
-                // ✅ STILI MATERIAL 3
                 calendarStyle: CalendarStyle(
-                  // Giorni normali
                   defaultTextStyle: theme.textTheme.bodyMedium!,
-
-                  // Giorno selezionato
                   selectedDecoration: BoxDecoration(
                     color: colorScheme.primary,
                     shape: BoxShape.circle,
@@ -145,8 +143,6 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
                     color: colorScheme.onPrimary,
                     fontWeight: FontWeight.bold,
                   ),
-
-                  // Giorno di oggi
                   todayDecoration: BoxDecoration(
                     color: colorScheme.secondary,
                     shape: BoxShape.circle,
@@ -155,18 +151,12 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
                     color: colorScheme.onSecondary,
                     fontWeight: FontWeight.bold,
                   ),
-
-                  // Weekend
                   weekendTextStyle: theme.textTheme.bodyMedium!.copyWith(
                     color: colorScheme.error,
                   ),
-
-                  // Giorni fuori mese
                   outsideTextStyle: theme.textTheme.bodyMedium!.copyWith(
                     color: colorScheme.onSurface.withOpacity(0.38),
                   ),
-
-                  // ✅ MARCATORI PER I GIORNI CON GPS
                   markersMaxCount: 1,
                   markerDecoration: BoxDecoration(
                     color: Color(widget.tracker.color),
@@ -175,8 +165,6 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
                   markerMargin: const EdgeInsets.only(top: 2),
                   markerSize: 6.0,
                 ),
-
-                // ✅ HEADER STYLE CON MATERIAL 3
                 headerStyle: HeaderStyle(
                   titleCentered: true,
                   formatButtonVisible: false,
@@ -194,8 +182,6 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
                   ),
                   headerPadding: const EdgeInsets.symmetric(vertical: 8),
                 ),
-
-                // ✅ GIORNI DELLA SETTIMANA CON MATERIAL 3
                 daysOfWeekStyle: DaysOfWeekStyle(
                   weekdayStyle: theme.textTheme.bodySmall!.copyWith(
                     color: colorScheme.onSurface,
@@ -229,7 +215,6 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
     }
   }
 
-  // ✅ CORREZIONE: Normalizza usando DateTime locale (non UTC)
   Set<DateTime> _getDaysWithPositions() {
     final Set<DateTime> days = {};
     for (final position in _positions) {
@@ -249,7 +234,7 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
     _mapController.move(LatLng(position.latitude, position.longitude), 16.0);
   }
 
-  Future _openInExternalMaps(TrackerPosition position) async {
+  Future<void> _openInExternalMaps(TrackerPosition position) async {
     try {
       HapticFeedback.lightImpact();
       final url = position.getGoogleMapsURL();
@@ -275,6 +260,36 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
+    // Controlla se siamo dentro una TabBarView (modalità embedded)
+    final isEmbedded = context.findAncestorWidgetOfExactType<TabBarView>() != null;
+
+    if (isEmbedded) {
+      // Modalità embedded - solo il contenuto senza AppBar
+      return Consumer<void>(
+        builder: (context, trackerNotifier, child) {
+          if (_isLoading) {
+            return _buildLoadingState(l, theme, colorScheme);
+          }
+
+          if (_error != null) {
+            return _buildErrorState(l, theme, colorScheme);
+          }
+
+          if (_positions.isEmpty) {
+            return _buildEmptyState(l, theme, colorScheme);
+          }
+
+          return Column(
+            children: [
+              _buildMap(colorScheme),
+              _buildTimelineSheet(l, theme, colorScheme),
+            ],
+          );
+        },
+      );
+    }
+
+    // Modalità normale con AppBar completo
     return Scaffold(
       backgroundColor: colorScheme.surface,
       appBar: AppBar(
@@ -297,7 +312,7 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
           ),
         ],
       ),
-      body: Consumer(
+      body: Consumer<void>(
         builder: (context, trackerNotifier, child) {
           if (_isLoading) {
             return _buildLoadingState(l, theme, colorScheme);
@@ -601,6 +616,8 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
   }
 
   Widget _buildErrorState(AppLocalizations? l, ThemeData theme, ColorScheme colorScheme) {
+    final isEmbedded = context.findAncestorWidgetOfExactType<TabBarView>() != null;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32.0),
@@ -629,11 +646,13 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
               style: theme.textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 32),
-            FilledButton.tonal(
-              onPressed: _loadPositions,
-              child: Text(l?.get('retry') ?? 'Riprova'),
-            ),
+            if (!isEmbedded) ...[
+              const SizedBox(height: 32),
+              FilledButton.tonal(
+                onPressed: _loadPositions,
+                child: Text(l?.get('retry') ?? 'Riprova'),
+              ),
+            ],
           ],
         ),
       ),
@@ -641,6 +660,8 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
   }
 
   Widget _buildEmptyState(AppLocalizations? l, ThemeData theme, ColorScheme colorScheme) {
+    final isEmbedded = context.findAncestorWidgetOfExactType<TabBarView>() != null;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32.0),
@@ -670,12 +691,14 @@ class _TrackerHistoryScreenState extends State<TrackerHistoryScreen> {
               style: theme.textTheme.bodyLarge?.copyWith(color: colorScheme.onSurfaceVariant),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 40),
-            FilledButton.icon(
-              onPressed: _loadPositions,
-              icon: const Icon(Icons.refresh),
-              label: Text(l?.get('refresh') ?? 'Aggiorna'),
-            ),
+            if (!isEmbedded) ...[
+              const SizedBox(height: 40),
+              FilledButton.icon(
+                onPressed: _loadPositions,
+                icon: const Icon(Icons.refresh),
+                label: Text(l?.get('refresh') ?? 'Aggiorna'),
+              ),
+            ],
           ],
         ),
       ),

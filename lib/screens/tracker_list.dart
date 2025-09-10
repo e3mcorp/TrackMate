@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
+import 'package:trackmate/screens/tracker_details.dart';
 
 class TrackerListScreen extends StatefulWidget {
   const TrackerListScreen({super.key});
@@ -688,7 +689,7 @@ class TrackerListScreenState extends State<TrackerListScreen> with TickerProvide
     final result = await Navigator.push(
       context,
       PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => TrackerEditScreen(tracker), // ✅ CORRETTO
+        pageBuilder: (context, animation, secondaryAnimation) => TrackerDetailsScreen(tracker), // ✅ CORRETTO
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return SlideTransition(
             position: animation.drive(

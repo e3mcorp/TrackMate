@@ -80,6 +80,31 @@ class TrackerMessageListScreenState extends State<TrackerMessageListScreen> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
+    // Controlla se siamo dentro una TabBarView (modalità embedded)
+    final isEmbedded = context.findAncestorWidgetOfExactType<TabBarView>() != null;
+
+    if (isEmbedded) {
+      // Modalità embedded - solo il contenuto senza AppBar
+      return Consumer<void>(
+        builder: (context, trackerNotifier, child) {
+          if (_isLoading) {
+            return _buildLoadingState(localizations, theme, colorScheme);
+          }
+
+          if (_error != null) {
+            return _buildErrorState(localizations, theme, colorScheme);
+          }
+
+          if (_messages == null || _messages!.isEmpty) {
+            return _buildEmptyState(localizations, theme, colorScheme);
+          }
+
+          return _buildMessagesList(localizations, theme, colorScheme);
+        },
+      );
+    }
+
+    // Modalità normale con AppBar completo
     return Scaffold(
       backgroundColor: colorScheme.surface,
       appBar: AppBar(
@@ -96,7 +121,7 @@ class TrackerMessageListScreenState extends State<TrackerMessageListScreen> {
           ),
         ],
       ),
-      body: Consumer<TrackerNotifier>(
+      body: Consumer<void>(
         builder: (context, trackerNotifier, child) {
           if (_isLoading) {
             return _buildLoadingState(localizations, theme, colorScheme);
@@ -138,6 +163,8 @@ class TrackerMessageListScreenState extends State<TrackerMessageListScreen> {
   }
 
   Widget _buildErrorState(AppLocalizations? localizations, ThemeData theme, ColorScheme colorScheme) {
+    final isEmbedded = context.findAncestorWidgetOfExactType<TabBarView>() != null;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32.0),
@@ -179,11 +206,13 @@ class TrackerMessageListScreenState extends State<TrackerMessageListScreen> {
                 textAlign: TextAlign.center,
               ),
             ),
-            const SizedBox(height: 32),
-            FilledButton.tonal(
-              onPressed: _refreshMessages,
-              child: Text(localizations?.get('retry') ?? 'Retry'),
-            ),
+            if (!isEmbedded) ...[
+              const SizedBox(height: 32),
+              FilledButton.tonal(
+                onPressed: _refreshMessages,
+                child: Text(localizations?.get('retry') ?? 'Retry'),
+              ),
+            ],
           ],
         ),
       ),
@@ -191,6 +220,8 @@ class TrackerMessageListScreenState extends State<TrackerMessageListScreen> {
   }
 
   Widget _buildEmptyState(AppLocalizations? localizations, ThemeData theme, ColorScheme colorScheme) {
+    final isEmbedded = context.findAncestorWidgetOfExactType<TabBarView>() != null;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32.0),
@@ -226,12 +257,14 @@ class TrackerMessageListScreenState extends State<TrackerMessageListScreen> {
               ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 40),
-            FilledButton.icon(
-              onPressed: _refreshMessages,
-              icon: const Icon(Icons.refresh),
-              label: Text(localizations?.get('refresh') ?? 'Refresh'),
-            ),
+            if (!isEmbedded) ...[
+              const SizedBox(height: 40),
+              FilledButton.icon(
+                onPressed: _refreshMessages,
+                icon: const Icon(Icons.refresh),
+                label: Text(localizations?.get('refresh') ?? 'Refresh'),
+              ),
+            ],
           ],
         ),
       ),
@@ -459,7 +492,6 @@ class TrackerMessageListScreenState extends State<TrackerMessageListScreen> {
 
   void _showMessageDetails(TrackerMessage message, AppLocalizations? localizations, ThemeData theme, ColorScheme colorScheme) {
     HapticFeedback.lightImpact();
-
     showDialog(
       context: context,
       builder: (context) {
@@ -544,7 +576,6 @@ class TrackerMessageListScreenState extends State<TrackerMessageListScreen> {
   String _formatDateTime(DateTime dateTime) {
     final now = DateTime.now();
     final difference = now.difference(dateTime);
-
     if (difference.inDays > 0) {
       return '${difference.inDays}d ago';
     } else if (difference.inHours > 0) {

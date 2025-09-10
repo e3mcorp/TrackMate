@@ -81,6 +81,31 @@ class TrackerPositionListScreenState extends State<TrackerPositionListScreen> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
+    // Controlla se siamo dentro una TabBarView (modalità embedded)
+    final isEmbedded = context.findAncestorWidgetOfExactType<TabBarView>() != null;
+
+    if (isEmbedded) {
+      // Modalità embedded - solo il contenuto senza AppBar
+      return Consumer<void>(
+        builder: (context, trackerNotifier, child) {
+          if (_isLoading) {
+            return _buildLoadingState(localizations, theme, colorScheme);
+          }
+
+          if (_error != null) {
+            return _buildErrorState(localizations, theme, colorScheme);
+          }
+
+          if (_positions == null || _positions!.isEmpty) {
+            return _buildEmptyState(localizations, theme, colorScheme);
+          }
+
+          return _buildPositionsList(localizations, theme, colorScheme);
+        },
+      );
+    }
+
+    // Modalità normale con AppBar completo
     return Scaffold(
       backgroundColor: colorScheme.surface,
       appBar: AppBar(
@@ -97,7 +122,7 @@ class TrackerPositionListScreenState extends State<TrackerPositionListScreen> {
           ),
         ],
       ),
-      body: Consumer<TrackerNotifier>(
+      body: Consumer<void>(
         builder: (context, trackerNotifier, child) {
           if (_isLoading) {
             return _buildLoadingState(localizations, theme, colorScheme);
@@ -139,6 +164,8 @@ class TrackerPositionListScreenState extends State<TrackerPositionListScreen> {
   }
 
   Widget _buildErrorState(AppLocalizations? localizations, ThemeData theme, ColorScheme colorScheme) {
+    final isEmbedded = context.findAncestorWidgetOfExactType<TabBarView>() != null;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32.0),
@@ -180,11 +207,13 @@ class TrackerPositionListScreenState extends State<TrackerPositionListScreen> {
                 textAlign: TextAlign.center,
               ),
             ),
-            const SizedBox(height: 32),
-            FilledButton.tonal(
-              onPressed: _refreshPositions,
-              child: Text(localizations?.get('retry') ?? 'Retry'),
-            ),
+            if (!isEmbedded) ...[
+              const SizedBox(height: 32),
+              FilledButton.tonal(
+                onPressed: _refreshPositions,
+                child: Text(localizations?.get('retry') ?? 'Retry'),
+              ),
+            ],
           ],
         ),
       ),
@@ -192,6 +221,8 @@ class TrackerPositionListScreenState extends State<TrackerPositionListScreen> {
   }
 
   Widget _buildEmptyState(AppLocalizations? localizations, ThemeData theme, ColorScheme colorScheme) {
+    final isEmbedded = context.findAncestorWidgetOfExactType<TabBarView>() != null;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32.0),
@@ -227,12 +258,14 @@ class TrackerPositionListScreenState extends State<TrackerPositionListScreen> {
               ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 40),
-            FilledButton.icon(
-              onPressed: _refreshPositions,
-              icon: const Icon(Icons.refresh),
-              label: Text(localizations?.get('refresh') ?? 'Refresh'),
-            ),
+            if (!isEmbedded) ...[
+              const SizedBox(height: 40),
+              FilledButton.icon(
+                onPressed: _refreshPositions,
+                icon: const Icon(Icons.refresh),
+                label: Text(localizations?.get('refresh') ?? 'Refresh'),
+              ),
+            ],
           ],
         ),
       ),
@@ -442,7 +475,6 @@ class TrackerPositionListScreenState extends State<TrackerPositionListScreen> {
       HapticFeedback.lightImpact();
       final url = position.getGoogleMapsURL();
       final uri = Uri.parse(url);
-
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
@@ -464,7 +496,6 @@ class TrackerPositionListScreenState extends State<TrackerPositionListScreen> {
   String _formatDateTime(DateTime dateTime) {
     final now = DateTime.now();
     final difference = now.difference(dateTime);
-
     if (difference.inDays > 0) {
       return '${difference.inDays}d ago';
     } else if (difference.inHours > 0) {

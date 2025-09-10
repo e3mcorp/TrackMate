@@ -9,13 +9,10 @@ import 'package:trackmate/locale/app_localizations.dart';
 import 'package:trackmate/utils/data-validator.dart';
 import 'package:trackmate/utils/geolocation.dart';
 import 'package:trackmate/widgets/modal.dart';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
 import 'package:geolocator/geolocator.dart' as geo;
-
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
@@ -34,10 +31,14 @@ class MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
 
   // markers data: [{'tracker': Tracker, 'position': TrackerPosition}]
-  List<Map<String, Object>> _trackerEntries = [];
-  bool _isMapReady = false;
+  List<Map<String, dynamic>> _allTrackerEntries = [];
+  List<Map<String, dynamic>> _visibleTrackerEntries = [];
 
-  Uint8List? _markerImageBytes; // opzionale se vuoi usare l’asset esistente
+  // ✅ Stato per tracciare quali tracker sono visibili
+  Set<String> _selectedTrackerUuids = <String>{};
+
+  bool _isMapReady = false;
+  Uint8List? _markerImageBytes;
 
   @override
   void initState() {
@@ -74,20 +75,36 @@ class MapScreenState extends State<MapScreen> {
       final db = await DataBase.get();
       final rawEntries = await TrackerPositionDB.getAllTrackerLastPosition(db!);
       final entries = rawEntries
-          .map<Map<String, Object>>(
+          .map<Map<String, dynamic>>(
             (entry) => {
           'tracker': entry.tracker,
           'position': entry.position,
         },
       )
           .toList();
+
       if (!mounted) return;
+
       setState(() {
-        _trackerEntries = entries;
+        _allTrackerEntries = entries;
+
+        // Se è la prima volta, seleziona tutti i tracker
+        if (_selectedTrackerUuids.isEmpty) {
+          _selectedTrackerUuids = Set<String>.from(
+              _allTrackerEntries.map((entry) => (entry['tracker'] as Tracker).uuid)
+          );
+        }
+
+        // Filtra solo i tracker selezionati
+        _visibleTrackerEntries = _allTrackerEntries
+            .where((entry) => _selectedTrackerUuids.contains((entry['tracker'] as Tracker).uuid))
+            .toList();
       });
-      if (_trackerEntries.isNotEmpty) {
+
+      if (_visibleTrackerEntries.isNotEmpty) {
         await _flyToFitTrackers();
       }
+
       if (kDebugMode) {
         debugPrint('MapScreen: Markers reloaded due to database change');
       }
@@ -98,15 +115,57 @@ class MapScreenState extends State<MapScreen> {
     }
   }
 
+  // ✅ Mostra/nasconde tracker specifico
+  void _toggleTrackerVisibility(String trackerUuid, bool isVisible) {
+    setState(() {
+      if (isVisible) {
+        _selectedTrackerUuids.add(trackerUuid);
+      } else {
+        _selectedTrackerUuids.remove(trackerUuid);
+      }
+
+      // Aggiorna i marker visibili
+      _visibleTrackerEntries = _allTrackerEntries
+          .where((entry) => _selectedTrackerUuids.contains((entry['tracker'] as Tracker).uuid))
+          .toList();
+    });
+
+    // Riadatta la mappa se ci sono tracker visibili
+    if (_visibleTrackerEntries.isNotEmpty) {
+      _flyToFitTrackers();
+    }
+  }
+
+  // ✅ Mostra/nascondi tutti i tracker
+  void _toggleAllTrackers(bool showAll) {
+    setState(() {
+      if (showAll) {
+        _selectedTrackerUuids = Set<String>.from(
+            _allTrackerEntries.map((entry) => (entry['tracker'] as Tracker).uuid)
+        );
+      } else {
+        _selectedTrackerUuids.clear();
+      }
+
+      _visibleTrackerEntries = _allTrackerEntries
+          .where((entry) => _selectedTrackerUuids.contains((entry['tracker'] as Tracker).uuid))
+          .toList();
+    });
+
+    if (_visibleTrackerEntries.isNotEmpty) {
+      _flyToFitTrackers();
+    }
+  }
+
   Future<void> _flyToPosition(double latitude, double longitude, double zoom) async {
     _mapController.move(LatLng(latitude, longitude), zoom);
   }
 
   Future<void> _flyToFitTrackers() async {
-    if (_trackerEntries.isEmpty) return;
+    if (_visibleTrackerEntries.isEmpty) return;
 
-    if (_trackerEntries.length == 1) {
-      final TrackerPosition position = _trackerEntries.first['position'] as TrackerPosition;
+    if (_visibleTrackerEntries.length == 1) {
+      final TrackerPosition position = _visibleTrackerEntries.first['position'] as TrackerPosition;
       await _flyToPosition(position.latitude, position.longitude, 15.0);
       return;
     }
@@ -115,7 +174,8 @@ class MapScreenState extends State<MapScreen> {
     double maxLat = -double.infinity;
     double minLon = double.infinity;
     double maxLon = -double.infinity;
-    for (final entry in _trackerEntries) {
+
+    for (final entry in _visibleTrackerEntries) {
       final TrackerPosition position = entry['position'] as TrackerPosition;
       final lat = position.latitude;
       final lon = position.longitude;
@@ -139,7 +199,6 @@ class MapScreenState extends State<MapScreen> {
 
     final centerLat = (minLat + maxLat) / 2;
     final centerLon = (minLon + maxLon) / 2;
-
     final latDiff = maxLat - minLat;
     final lonDiff = maxLon - minLon;
     final maxDiff = latDiff > lonDiff ? latDiff : lonDiff;
@@ -170,7 +229,7 @@ class MapScreenState extends State<MapScreen> {
   Future<void> _onMapReady(geo.Position? userPos) async {
     _isMapReady = true;
     await _reloadMarkersFromDatabase();
-    if (_trackerEntries.isNotEmpty) {
+    if (_visibleTrackerEntries.isNotEmpty) {
       await _flyToFitTrackers();
     } else if (userPos != null) {
       await _flyToUser(userPos);
@@ -178,7 +237,6 @@ class MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _onMarkerTap(TrackerPosition position) async {
-    // Apri direttamente Google Maps come facevi nel tap dell’annotation
     final uri = Uri.parse(position.getGoogleMapsURL());
     try {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -187,10 +245,190 @@ class MapScreenState extends State<MapScreen> {
     }
   }
 
+  // ✅ Mostra bottom sheet per selezione tracker
+  void _showTrackerFilterSheet(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.6,
+              maxChildSize: 0.9,
+              minChildSize: 0.3,
+              expand: false,
+              builder: (context, scrollController) {
+                return Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Handle per trascinare
+                      Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+
+                      // Titolo
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            localizations?.get('selectTrackers') ?? 'Select Trackers',
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // Controlli globali
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                _toggleAllTrackers(true);
+                                setModalState(() {});
+                                setState(() {});
+                              },
+                              icon: const Icon(Icons.check_box),
+                              label: Text(localizations?.get('selectAll') ?? 'Select All'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                _toggleAllTrackers(false);
+                                setModalState(() {});
+                                setState(() {});
+                              },
+                              icon: const Icon(Icons.check_box_outline_blank),
+                              label: Text(localizations?.get('deselectAll') ?? 'Deselect All'),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // Lista tracker
+                      Expanded(
+                        child: ListView.builder(
+                          controller: scrollController,
+                          itemCount: _allTrackerEntries.length,
+                          itemBuilder: (context, index) {
+                            final tracker = _allTrackerEntries[index]['tracker'] as Tracker;
+                            final isSelected = _selectedTrackerUuids.contains(tracker.uuid);
+
+                            return Card(
+                              child: CheckboxListTile(
+                                title: Text(
+                                  tracker.name,
+                                  style: const TextStyle(fontWeight: FontWeight.w500),
+                                ),
+                                subtitle: Text(
+                                  tracker.phoneNumber.isEmpty
+                                      ? 'No phone number'
+                                      : tracker.phoneNumber,
+                                ),
+                                secondary: Container(
+                                  width: 24,
+                                  height: 24,
+                                  decoration: BoxDecoration(
+                                    color: Color(tracker.color),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                value: isSelected,
+                                onChanged: (bool? value) {
+                                  _toggleTrackerVisibility(tracker.uuid, value ?? false);
+                                  setModalState(() {});
+                                  setState(() {});
+                                },
+                                controlAffinity: ListTileControlAffinity.trailing,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // Statistiche
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            Column(
+                              children: [
+                                Text(
+                                  '${_allTrackerEntries.length}',
+                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  localizations?.get('total') ?? 'Total',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                            Column(
+                              children: [
+                                Text(
+                                  '${_selectedTrackerUuids.length}',
+                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  ),
+                                ),
+                                Text(
+                                  localizations?.get('selected') ?? 'Selected',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final localizations = AppLocalizations.of(context);
-
     return Scaffold(
       body: Stack(
         children: [
@@ -198,22 +436,17 @@ class MapScreenState extends State<MapScreen> {
             future: Geolocation.getPosition(),
             builder: (context, snapshot) {
               final geo.Position? pos = snapshot.data;
-
-              // Usa ChangeNotifierProvider.value per ascoltare i cambiamenti del DB
               return ChangeNotifierProvider.value(
                 value: TrackerDB.changeNotifier,
-                child: Consumer<Object?>(
+                child: Consumer<TrackerNotifier>(  // ✅ Aggiungi <TrackerNotifier>
                   builder: (context, notifier, child) {
-                    // Inizializza quando la mappa viene costruita la prima volta
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (!_isMapReady) {
                         _onMapReady(pos);
                       }
                     });
 
-                    // Centro iniziale (fallback)
                     final initialCenter = LatLng(pos?.latitude ?? 0, pos?.longitude ?? 0);
-
                     return FlutterMap(
                       mapController: _mapController,
                       options: MapOptions(
@@ -222,22 +455,20 @@ class MapScreenState extends State<MapScreen> {
                         interactionOptions: const InteractionOptions(flags: InteractiveFlag.all),
                       ),
                       children: [
-                        // TileLayer: qui puoi sostituire il provider (OSM, Stadia, MapTiler, ecc.)
                         TileLayer(
                           urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
                           userAgentPackageName: 'com.example.trackmate',
                         ),
-                        // Layer markers (uno per tracker)
                         MarkerLayer(
                           markers: [
-                            for (final entry in _trackerEntries)
+                            for (final entry in _visibleTrackerEntries)
                               _buildMarker(
                                 entry['tracker'] as Tracker,
                                 entry['position'] as TrackerPosition,
                               ),
                           ],
                         ),
-                        // Attribution OSM (conforme alle policy)
+                        // Attribution OSM
                         Align(
                           alignment: Alignment.bottomRight,
                           child: Container(
@@ -259,82 +490,91 @@ class MapScreenState extends State<MapScreen> {
           ),
         ],
       ),
+      // ✅ Floating action button principale con menu
       floatingActionButton: Column(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          // Bottone per ricaricare manualmente i marker
-          FloatingActionButton(
-            heroTag: "refresh_markers",
-            onPressed: () async {
-              if (_isMapReady) {
-                await _reloadMarkersFromDatabase();
-                if (context.mounted) {
-                  Modal.toast(
-                    context,
-                    localizations?.get('markersRefreshed') ?? 'Markers refreshed',
-                  );
-                }
-              }
-            },
-            backgroundColor: Colors.orange,
-            tooltip: localizations?.get('refreshMarkers') ?? 'Refresh markers',
-            child: const Icon(Icons.refresh, color: Colors.white),
-          ),
-          const SizedBox(height: 10),
-          // Bottone per centrare sui tracker
-          if (_trackerEntries.isNotEmpty)
-            FloatingActionButton(
-              heroTag: "fly_to_trackers",
-              onPressed: _flyToFitTrackers,
-              backgroundColor: Colors.blue,
-              tooltip: localizations?.get('centerOnTrackers') ?? 'Center on trackers',
-              child: const Icon(Icons.my_location, color: Colors.white),
+          // Filtro tracker - PRINCIPALE
+          FloatingActionButton.extended(
+            heroTag: "filter_trackers",
+            onPressed: () => _showTrackerFilterSheet(context),
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            foregroundColor: Colors.white,
+            icon: const Icon(Icons.filter_list),
+            label: Text(
+              '${_selectedTrackerUuids.length}/${_allTrackerEntries.length}',
+              style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-          const SizedBox(height: 10),
-          // Bottone per volare alla posizione utente
-          FloatingActionButton(
-            heroTag: "fly_to_user",
-            onPressed: () async {
-              final userPos = await Geolocation.getPosition();
-              if (userPos != null) {
-                await _flyToUser(userPos);
-              }
-            },
-            backgroundColor: Colors.green,
-            tooltip: localizations?.get('centerOnUser') ?? 'Center on me',
-            child: const Icon(Icons.person_pin_circle, color: Colors.white),
           ),
-          const SizedBox(height: 10),
-          // Bottone per richiedere posizioni
-          FloatingActionButton(
-            heroTag: "request_position",
-            onPressed: () async {
-              final db = await DataBase.get();
-              final trackers = await TrackerDB.list(db!);
-              for (final t in trackers) {
-                if (DataValidator.phoneNumber(t.phoneNumber)) {
-                  t.requestLocation();
-                }
-              }
-              if (context.mounted) {
-                Modal.toast(
-                  context,
-                  localizations?.get('requestedPosition') ?? 'Position requested',
-                );
-              }
-            },
-            child: Icon(
-              Icons.gps_fixed,
-              color: Themes.theme().textTheme.bodyLarge?.color,
-            ),
+
+          const SizedBox(height: 12),
+
+          // Azioni rapide
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              // Centra su tracker visibili
+              if (_visibleTrackerEntries.isNotEmpty)
+                FloatingActionButton(
+                  heroTag: "center_trackers",
+                  onPressed: _flyToFitTrackers,
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  tooltip: localizations?.get('centerOnTrackers') ?? 'Center on visible trackers',
+                  child: const Icon(Icons.center_focus_strong),
+                ),
+
+              // Centra su utente
+              FloatingActionButton(
+                heroTag: "center_user",
+                onPressed: () async {
+                  final userPos = await Geolocation.getPosition();
+                  if (userPos != null) {
+                    await _flyToUser(userPos);
+                  }
+                },
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                tooltip: localizations?.get('centerOnUser') ?? 'Center on my location',
+                child: const Icon(Icons.my_location),
+              ),
+
+              // Richiedi posizioni
+              FloatingActionButton(
+                heroTag: "request_positions",
+                onPressed: () async {
+                  final db = await DataBase.get();
+                  final trackers = await TrackerDB.list(db!);
+                  int requestCount = 0;
+
+                  for (final t in trackers) {
+                    if (DataValidator.phoneNumber(t.phoneNumber)) {
+                      t.requestLocation();
+                      requestCount++;
+                    }
+                  }
+
+                  if (context.mounted) {
+                    Modal.toast(
+                      context,
+                      '${localizations?.get('requestedPosition') ?? 'Position requested'} ($requestCount)',
+                    );
+                  }
+                },
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                tooltip: localizations?.get('requestAllPositions') ?? 'Request all positions',
+                child: const Icon(Icons.refresh),
+              ),
+            ],
           ),
         ],
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
   Marker _buildMarker(Tracker tracker, TrackerPosition position) {
-    // Marker tappabile: apre Google Maps e fa anche flyTo
     return Marker(
       point: LatLng(position.latitude, position.longitude),
       width: 44,
@@ -357,8 +597,6 @@ class MapScreenState extends State<MapScreen> {
     required Color color,
     required String label,
   }) {
-    // Fallback semplice: pallino circolare con label (nome tracker)
-    // Se vuoi usare l’icona SDF, puoi sostituire con Image.memory(_markerImageBytes!)
     final textColor = Themes.theme().textTheme.bodyLarge?.color ?? Colors.white;
     final borderColor = Themes.theme().textTheme.titleSmall?.color ?? Colors.black;
 
