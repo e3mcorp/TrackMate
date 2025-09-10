@@ -24,22 +24,12 @@ class TrackerDetailsScreen extends StatefulWidget {
 
 class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
     with TickerProviderStateMixin {
-  final _formKey = GlobalKey<FormState>();
-  final FlutterContactPickerPlus _contactPicker = FlutterContactPickerPlus();
 
   // Tab controller per le 3 schede
   late final TabController _tabController;
   bool _isEditMode = false;
 
-  // Controllers per i campi editabili
-  late final TextEditingController _nameController;
-  late final TextEditingController _licensePlateController;
-  late final TextEditingController _chassisNumberController;
-  late final TextEditingController _modelController;
-  late final TextEditingController _phoneNumberController;
-  late final TextEditingController _pinController;
-  late final TextEditingController _adminNumberController;
-  late final TextEditingController _sosNumbersController;
+
 
   @override
   void initState() {
@@ -48,15 +38,6 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
     // ✅ Inizializza TabController con 3 schede
     _tabController = TabController(length: 3, vsync: this);
 
-    // Inizializza i controllers
-    _nameController = TextEditingController(text: widget.tracker.name);
-    _licensePlateController = TextEditingController(text: widget.tracker.licensePlate);
-    _chassisNumberController = TextEditingController(text: widget.tracker.chassisNumber);
-    _modelController = TextEditingController(text: widget.tracker.model);
-    _phoneNumberController = TextEditingController(text: widget.tracker.phoneNumber);
-    _pinController = TextEditingController(text: widget.tracker.pin);
-    _adminNumberController = TextEditingController(text: widget.tracker.adminNumber);
-    _sosNumbersController = TextEditingController(text: _listToString(widget.tracker.sosNumbers));
 
     // ✅ Listener per cambiamenti di tab
     _tabController.addListener(() {
@@ -71,14 +52,7 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
   @override
   void dispose() {
     _tabController.dispose();
-    _nameController.dispose();
-    _licensePlateController.dispose();
-    _chassisNumberController.dispose();
-    _modelController.dispose();
-    _phoneNumberController.dispose();
-    _pinController.dispose();
-    _adminNumberController.dispose();
-    _sosNumbersController.dispose();
+
     super.dispose();
   }
 
@@ -113,12 +87,6 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
             onPressed: _requestPosition,
             tooltip: 'Richiedi posizione',
           ),
-          if (_tabController.index == 0) // Solo in Overview
-            IconButton(
-              icon: Icon(_isEditMode ? Icons.save : Icons.edit),
-              onPressed: _isEditMode ? _saveChanges : _toggleEditMode,
-              tooltip: _isEditMode ? 'Save' : 'Edit',
-            ),
           PopupMenuButton<String>(
             onSelected: _handleMenuAction,
             itemBuilder: (context) => [
@@ -209,17 +177,11 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    if (_isEditMode) {
-      return _buildEditView(localizations, theme, colorScheme);
-    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          // Status Card prominente
-          //_buildStatusCard(localizations, theme, colorScheme),
-          //const SizedBox(height: 16),
 
           // Device Info
           _buildDeviceInfoSection(localizations, theme, colorScheme),
@@ -350,6 +312,8 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
       icon: Icons.devices,
       color: colorScheme.secondary,
       children: [
+        _buildBatteryField(localizations, theme, colorScheme),
+        const SizedBox(height: 16),
         _buildReadOnlyField(
           localizations?.get('name') ?? 'Name',
           widget.tracker.name,
@@ -378,6 +342,14 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
           localizations?.get('model') ?? 'Model',
           widget.tracker.model.isEmpty ? '-' : widget.tracker.model,
           Icons.car_repair,
+          theme,
+          colorScheme,
+        ),
+        const SizedBox(height: 16),
+        _buildReadOnlyField(
+          localizations?.get('lastUpdate') ?? 'Last Update',
+          _formatDateTime(widget.tracker.timestamp),
+          Icons.schedule,
           theme,
           colorScheme,
         ),
@@ -436,8 +408,6 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
       icon: Icons.settings,
       color: colorScheme.primary,
       children: [
-        _buildBatteryField(localizations, theme, colorScheme),
-        const SizedBox(height: 16),
         _buildSimpleAlarmTile(
           localizations?.get('ignitionAlarm') ?? 'Ignition Alarm',
           widget.tracker.ignitionAlarm,
@@ -450,14 +420,6 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
           localizations?.get('powerAlarmSMS') ?? 'Power Alarm SMS',
           widget.tracker.powerAlarmSMS,
           Icons.sms_failed,
-          theme,
-          colorScheme,
-        ),
-        const SizedBox(height: 16),
-        _buildReadOnlyField(
-          localizations?.get('lastUpdate') ?? 'Last Update',
-          _formatDateTime(widget.tracker.timestamp),
-          Icons.schedule,
           theme,
           colorScheme,
         ),
@@ -508,211 +470,6 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
     );
   }
 
-  // ===== EDIT VIEW =====
-  Widget _buildEditView(AppLocalizations? localizations, ThemeData theme, ColorScheme colorScheme) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildEditableFormFields(localizations, theme, colorScheme),
-            const SizedBox(height: 32),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.cancel),
-                    label: Text(localizations?.get('cancel') ?? 'Cancel'),
-                    onPressed: _cancelEdit,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: FilledButton.icon(
-                    icon: const Icon(Icons.save),
-                    label: Text(localizations?.get('save') ?? 'Save'),
-                    onPressed: _saveChanges,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEditableFormFields(AppLocalizations? localizations, ThemeData theme, ColorScheme colorScheme) {
-    return Column(
-      children: [
-        // Basic Info
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  localizations?.get('basicInfo') ?? 'Basic Information',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _nameController,
-                  validator: (value) {
-                    if (value?.isEmpty ?? true) {
-                      return localizations?.get('requiredField') ?? 'Required field';
-                    }
-                    return null;
-                  },
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.drive_file_rename_outline),
-                    labelText: localizations?.get('name') ?? 'Name',
-                    filled: true,
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _phoneNumberController,
-                  validator: (value) {
-                    if (value?.isEmpty ?? true) {
-                      return localizations?.get('requiredField') ?? 'Required field';
-                    }
-                    return null;
-                  },
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.phone),
-                    labelText: localizations?.get('phoneNumber') ?? 'Phone Number',
-                    filled: true,
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.contact_phone),
-                      onPressed: _selectContact,
-                    ),
-                  ),
-                  keyboardType: TextInputType.phone,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _licensePlateController,
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.document_scanner),
-                    labelText: localizations?.get('licensePlate') ?? 'License Plate',
-                    filled: true,
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _modelController,
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.car_repair),
-                    labelText: localizations?.get('model') ?? 'Model',
-                    filled: true,
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        // Security Settings
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  localizations?.get('securitySettings') ?? 'Security Settings',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _adminNumberController,
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.contact_phone),
-                    labelText: localizations?.get('adminNumber') ?? 'Admin Number',
-                    filled: true,
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.contact_phone),
-                      onPressed: () => _selectContact(isAdmin: true),
-                    ),
-                  ),
-                  keyboardType: TextInputType.phone,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _sosNumbersController,
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.emergency),
-                    labelText: localizations?.get('sosNumbers') ?? 'SOS Numbers',
-                    helperText: localizations?.get('sosNumbersHelp') ?? 'Separate numbers with commas',
-                    filled: true,
-                    border: const OutlineInputBorder(),
-                  ),
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _pinController,
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.password),
-                    labelText: localizations?.get('pin') ?? 'PIN',
-                    filled: true,
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        // Appearance
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  localizations?.get('appearance') ?? 'Appearance',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ListTile(
-                  leading: const Icon(Icons.palette),
-                  title: Text(localizations?.get('color') ?? 'Color'),
-                  trailing: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: Color(widget.tracker.color),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: colorScheme.outline),
-                    ),
-                  ),
-                  onTap: _showColorPicker,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 
   // ===== HELPER WIDGETS =====
   Widget _buildSection({
@@ -922,73 +679,6 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
     );
   }
 
-  // ===== ACTION METHODS =====
-  void _toggleEditMode() {
-    setState(() {
-      _isEditMode = !_isEditMode;
-    });
-  }
-
-  void _cancelEdit() {
-    // Reset controllers to original values
-    _nameController.text = widget.tracker.name;
-    _licensePlateController.text = widget.tracker.licensePlate;
-    _chassisNumberController.text = widget.tracker.chassisNumber;
-    _modelController.text = widget.tracker.model;
-    _phoneNumberController.text = widget.tracker.phoneNumber;
-    _pinController.text = widget.tracker.pin;
-    _adminNumberController.text = widget.tracker.adminNumber;
-    _sosNumbersController.text = _listToString(widget.tracker.sosNumbers);
-
-    setState(() {
-      _isEditMode = false;
-    });
-  }
-
-  Future<void> _saveChanges() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-
-    try {
-      // Update tracker object
-      widget.tracker.name = _nameController.text;
-      widget.tracker.licensePlate = _licensePlateController.text;
-      widget.tracker.chassisNumber = _chassisNumberController.text;
-      widget.tracker.model = _modelController.text;
-      widget.tracker.phoneNumber = _phoneNumberController.text;
-      widget.tracker.pin = _pinController.text;
-      widget.tracker.adminNumber = _adminNumberController.text;
-      widget.tracker.sosNumbers = _stringToList(_sosNumbersController.text);
-
-      // Save to database
-      final db = await DataBase.get();
-      await TrackerDB.update(db!, widget.tracker);
-
-      if (mounted) {
-        final localizations = AppLocalizations.of(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(localizations?.get('savedSuccessfully') ?? 'Saved successfully'),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-          ),
-        );
-        setState(() {
-          _isEditMode = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error updating tracker: $e');
-      if (mounted) {
-        final localizations = AppLocalizations.of(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(localizations?.get('errorSaving') ?? 'Error saving'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
-    }
-  }
-
   void _handleMenuAction(String action) {
     switch (action) {
       case 'info':
@@ -998,61 +688,6 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
         _showFactoryResetDialog();
         break;
     }
-  }
-
-  Future<void> _selectContact({bool isAdmin = false}) async {
-    try {
-      Contact? contact = await _contactPicker.selectPhoneNumber();
-      if (contact?.selectedPhoneNumber != null) {
-        setState(() {
-          if (isAdmin) {
-            _adminNumberController.text = contact!.selectedPhoneNumber!;
-          } else {
-            _phoneNumberController.text = contact!.selectedPhoneNumber!;
-          }
-        });
-      } else if (contact?.phoneNumbers != null && contact!.phoneNumbers!.isNotEmpty) {
-        setState(() {
-          if (isAdmin) {
-            _adminNumberController.text = contact.phoneNumbers!.first;
-          } else {
-            _phoneNumberController.text = contact.phoneNumbers!.first;
-          }
-        });
-      }
-    } on PlatformException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error selecting contact: ${e.message}'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
-    }
-  }
-
-  void _showColorPicker() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(AppLocalizations.of(context)?.get('selectColor') ?? 'Select Color'),
-        content: SingleChildScrollView(
-          child: MaterialPicker(
-            pickerColor: Color(widget.tracker.color),
-            onColorChanged: (color) => setState(() {
-              widget.tracker.color = color.value;
-            }),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(AppLocalizations.of(context)?.get('ok') ?? 'OK'),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _showFactoryResetDialog() async {

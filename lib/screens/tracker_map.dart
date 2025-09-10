@@ -197,7 +197,7 @@ class _TrackerPositionMapScreenState extends State<TrackerPositionMapScreen> {
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
-      appBar: AppBar(
+      /*appBar: AppBar(
         title: Text(localizations?.get('trackerMap') ?? 'Tracker Map'),
         backgroundColor: colorScheme.surface,
         foregroundColor: colorScheme.onSurface,
@@ -210,7 +210,7 @@ class _TrackerPositionMapScreenState extends State<TrackerPositionMapScreen> {
             tooltip: localizations?.get('refresh') ?? 'Refresh',
           ),
         ],
-      ),
+      ),*/
       body: Consumer<Object?>(
         builder: (context, trackerNotifier, child) {
           if (_isLoading) {

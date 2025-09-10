@@ -102,7 +102,7 @@ class MainMenuState extends State {
     }
 
     return Scaffold(
-      appBar: AppBar(
+      /*appBar: AppBar(
         title: Text(
           Locales.get('carTracker', context),
           style: theme.textTheme.titleLarge?.copyWith(
@@ -114,7 +114,7 @@ class MainMenuState extends State {
         elevation: 0,
         surfaceTintColor: colorScheme.surfaceTint,
         centerTitle: true,
-      ),
+      ),*/
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),
         transitionBuilder: (Widget child, Animation<double> animation) {

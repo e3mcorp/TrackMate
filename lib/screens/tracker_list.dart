@@ -86,10 +86,10 @@ class TrackerListScreenState extends State<TrackerListScreen> with TickerProvide
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
-      appBar: PreferredSize(
+      /*appBar: PreferredSize(
         preferredSize: const Size.fromHeight(0),
         child: Container(),
-      ),
+      ),*/
       body: FutureBuilder<List<Tracker>>(
         future: _loadTrackers(),
         builder: (context, snapshot) {
