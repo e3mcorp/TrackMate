@@ -116,12 +116,6 @@ class LocalesIT {
     'powerAlarmCall': 'Allarme chiamata alimentazione',
     'ignitionAlarm': 'Allarme accensione',
 
-    // Setup wizard
-    'setupWizard': 'Configurazione Guidata',
-    'startSetup': 'Inizia Configurazione',
-    'welcomeToCarTracker': 'Benvenuto in CarTracker',
-    'welcome': 'Benvenuto!',
-    'welcomeDescription': 'CarTracker ti aiuta a monitorare i tuoi veicoli tramite tracker GPS.\n\nRiceverai SMS con posizioni, stato batteria e altre informazioni utili.',
     'step': 'Passo',
     'of': 'di',
 
@@ -237,6 +231,8 @@ class LocalesIT {
     'updateLocation': 'Aggiorna Posizione',
     'commandSent': 'Comando inviato',
     'received': 'Ricevuto',
+    'sent': 'Inviato',
+
     'changePin': 'Cambia PIN',
     'getInfo': 'Ottieni informazioni',
     'factoryReset': 'Reset impostazioni di fabbrica',
@@ -274,6 +270,85 @@ class LocalesIT {
     'firstConfiguration': 'Prima configurazione...',
     'loadingComplete': 'Caricamento completato',
     'errorOccurred': 'Si è verificato un errore',
-    'copyright': '© 2025 CarTracker',
+    'copyright': '© 2025 TrackMate',
+
+
+
+
+
+
+    'overview': 'Panoramica',
+    // Informazioni dispositivo
+    'deviceInfo': 'Informazioni Dispositivo',
+    'technicalInfo': 'Informazioni Tecniche',
+    'alarms': 'Allarmi e Impostazioni',
+    'lastUpdate': 'Ultimo Aggiornamento',
+    'imei': 'IMEI',
+
+    // Setup wizard
+    'setupWizard': 'Configurazione Guidata',
+    'startSetup': 'Inizia Configurazione',
+    'welcomeToCarTracker': 'Benvenuto in TrackMate',
+    'welcome': 'Benvenuto!',
+    'welcomeDescription': 'TrackMate ti aiuta a monitorare i tuoi veicoli tramite tracker GPS.\n\nRiceverai SMS con posizioni, stato batteria e altre informazioni utili.',
+
+    // Setup wizard steps
+    'baseInfo': 'Informazioni Base',
+    'basicInfoDesc': 'Inserisci le informazioni di base del tracker',
+
+    'licensePlateHint': 'es. AB123CD',
+    'vehicleModel': 'Modello veicolo (opzionale)',
+    'vehicleModelHint': 'es. Fiat Panda',
+    'colorIdentification': 'Colore identificativo',
+    'simConfig': 'Configurazione SIM',
+    'simConfigDesc': 'Configura la SIM card e i parametri di connessione',
+    'trackerSimNumber': 'Numero SIM del tracker *',
+    'simNumberHint': '+39 123 456 7890',
+
+    'adminNumberHint': '+39 987 654 3210',
+    'commandPin': 'PIN comandi',
+    'commandPinHint': '123456',
+    'commandPinHelp': 'PIN per i comandi (default: 123456)',
+    'apnConfig': 'Configurazione APN',
+
+    'timezoneSelect': 'Seleziona il fuso orario del tracker',
+    'timezoneSelected': 'Fuso Orario Selezionato',
+    'alarmConfig': 'Configurazione Allarmi',
+    'alarmConfigDesc': 'Configura gli allarmi e le notifiche del tracker',
+    'speedLimitHint': 'Vuoto per disattivare',
+    'ignitionAlarmDesc': 'Notifica all\'accensione/spegnimento',
+
+    'smsConfig': 'Configurazione via SMS',
+    'smsConfigDesc': 'Invia i comandi per configurare il tracker',
+    'noConfigNeeded': 'Nessuna configurazione necessaria',
+    'defaultSettingsDesc': 'Il tracker può essere utilizzato con le impostazioni di default',
+    'commandsToSend': 'Comandi da inviare:',
+    'allCommandsSent': 'Invia tutti i comandi',
+    'sendingInProgress': 'Invio in corso...',
+    'configurationComplete': 'Configurazione Completata',
+    'trackerReady': 'Tracker pronto!',
+    'pressSaveToComplete': 'Premi "Salva" per completare la configurazione.',
+
+    'smsCommandsSent': 'Comandi SMS inviati',
+
+
+    'refreshTrackerData': 'Aggiorna Dati Tracker',
+    'status': 'Stato',
+    'parameters': 'Parametri',
+    'position': 'Posizione',
+    'all': 'Tutto',
+    'requestedCompleteUpdate': 'Richiesto aggiornamento completo',
+    'requestedTrackerStatus': 'Richiesto stato del tracker',
+    'requestedTrackerParameters': 'Richiesti parametri del tracker',
+    'requestedTrackerPosition': 'Richiesta posizione del tracker',
+    'requestedBatteryStatus': 'Richiesto stato batteria',
+    'sendCustomSMS': 'Invia SMS Personalizzato',
+    'enterCommand': 'Inserisci comando...',
+    'requestPosition': 'Richiedi Posizione',
+    'positionRequested': 'Posizione richiesta',
+    'viewMessages': 'Visualizza Messaggi',
+    'on': 'ATTIVO',
+    'off': 'SPENTO',
+
   };
 }

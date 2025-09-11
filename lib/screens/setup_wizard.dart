@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:trackmate/data/tracker.dart';
 import 'package:trackmate/database/database.dart';
 import 'package:trackmate/database/tracker_db.dart';
+import 'package:trackmate/locale/app_localizations.dart';
 import 'package:trackmate/utils/sms.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
@@ -65,7 +66,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     tracker = widget.initial != null ? Tracker.fromMap(widget.initial!.toMap()) : Tracker();
     _initializeControllers();
     _initializeTimezone();
-
     _timezoneSearchCtrl.addListener(() {
       _filterTimezones(_timezoneSearchCtrl.text);
     });
@@ -148,11 +148,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       setState(() => _timezoneInitialized = true);
     } catch (e) {
       _selectedTimezone = 'UTC';
-      _allTimezones = [{'name': 'Europe/Rome (GMT+1)', 'value': 'Europe/Rome'}, {'name': 'UTC (GMT+0)', 'value': 'UTC'}];
+      _allTimezones = [
+        {'name': 'Europe/Rome (GMT+1)', 'value': 'Europe/Rome'},
+        {'name': 'UTC (GMT+0)', 'value': 'UTC'}
+      ];
       _filteredTimezones = List.from(_allTimezones);
       setState(() => _timezoneInitialized = true);
     }
-    // ❌ RIMOSSO: Non chiamare _prepareConfigurationSteps() qui!
   }
 
   void _filterTimezones(String query) {
@@ -178,12 +180,10 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     }
   }
 
-  // ✅ CORRETTO: Questa funzione ora legge i valori ATTUALI dai controller
   void _prepareConfigurationSteps() {
     _configurationSteps.clear();
     _smsStatus.clear();
 
-    // Leggi i valori ATTUALI dai controller
     final currentApn = apnCtrl.text.trim();
     final currentApnUser = apnUserCtrl.text.trim();
     final currentApnPass = apnPassCtrl.text.trim();
@@ -216,7 +216,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       _configurationSteps.add('PWRALM,ON,${powerAlarmCall ? 2 : 1}#');
     }
 
-    // Aggiungi sempre il comando timezone
     _configurationSteps.add(_generateTimezoneCommand(_selectedTimezone));
 
     for (String step in _configurationSteps) {
@@ -250,6 +249,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       } else {
         await TrackerDB.update(db!, tracker);
       }
+
       TrackerDB.changeNotifier.notifyListeners();
     } catch (e) {
       if (mounted) _showError('Errore nel salvataggio: $e');
@@ -257,6 +257,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     } finally {
       setState(() => _isLoading = false);
     }
+
     widget.onComplete?.call();
     if (mounted) Navigator.of(context).pop(tracker);
   }
@@ -264,8 +265,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   void _nextStep() async {
     if (!_validateCurrentStep()) return;
 
-    // ✅ CORRETTO: Prepara i comandi SMS solo quando si arriva al step 4
-    if (_currentStep == 3) { // Quando si passa da step 3 (Allarmi) a step 4 (SMS)
+    if (_currentStep == 3) {
       _prepareConfigurationSteps();
     }
 
@@ -294,6 +294,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       _showError('Numero SIM del tracker non configurato');
       return;
     }
+
     setState(() => _isSendingSMS = true);
     try {
       if (!await SMSUtils.hasPermissions()) {
@@ -302,12 +303,14 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           return;
         }
       }
+
       await SMSUtils.send(command, phoneCtrl.text.trim(), context: context);
       setState(() => _smsStatus[command] = true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Comando inviato: ${command.substring(0, command.indexOf('#'))}'),
-          backgroundColor: Colors.green, duration: const Duration(seconds: 2),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
         ));
       }
     } catch (e) {
@@ -338,8 +341,10 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   Future<void> _showTimezonePicker() async {
     _timezoneSearchCtrl.clear();
     _filterTimezones('');
+
     final selected = await showModalBottomSheet<String>(
-      context: context, isScrollControlled: true,
+      context: context,
+      isScrollControlled: true,
       builder: (context) {
         return StatefulBuilder(
           builder: (BuildContext context, StateSetter modalState) {
@@ -350,8 +355,11 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                     : _allTimezones.where((tz) => tz['name']!.toLowerCase().contains(query.toLowerCase())).toList();
               });
             }
+
             return DraggableScrollableSheet(
-              expand: false, initialChildSize: 0.8, maxChildSize: 0.9,
+              expand: false,
+              initialChildSize: 0.8,
+              maxChildSize: 0.9,
               builder: (_, scrollController) {
                 return Column(
                   children: [
@@ -363,10 +371,15 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                           hintText: 'Cerca per città o regione...',
                           prefixIcon: const Icon(Icons.search),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          suffixIcon: _timezoneSearchCtrl.text.isNotEmpty ? IconButton(
+                          suffixIcon: _timezoneSearchCtrl.text.isNotEmpty
+                              ? IconButton(
                             icon: const Icon(Icons.clear),
-                            onPressed: () { _timezoneSearchCtrl.clear(); filter(''); },
-                          ) : null,
+                            onPressed: () {
+                              _timezoneSearchCtrl.clear();
+                              filter('');
+                            },
+                          )
+                              : null,
                         ),
                         onChanged: filter,
                       ),
@@ -392,16 +405,19 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         );
       },
     );
+
     if (selected != null) setState(() => _selectedTimezone = selected);
   }
 
   @override
   Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.initial == null ? 'Aggiungi Tracker' : 'Modifica Tracker'),
+        title: Text(widget.initial == null ? localizations?.addTracker ?? 'Aggiungi Tracker' : localizations?.editTracker ?? 'Modifica Tracker'),
         elevation: 0,
         backgroundColor: colorScheme.surface,
         foregroundColor: colorScheme.onSurface,
@@ -411,16 +427,19 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             child: Row(
-              children: List.generate(6, (index) => Expanded(
-                child: Container(
-                  margin: EdgeInsets.only(right: index < 5 ? 8 : 0),
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: index <= _currentStep ? colorScheme.primary : colorScheme.outline.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(2),
+              children: List.generate(
+                6,
+                    (index) => Expanded(
+                  child: Container(
+                    margin: EdgeInsets.only(right: index < 5 ? 8 : 0),
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: index <= _currentStep ? colorScheme.primary : colorScheme.outline.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
-              )),
+              ),
             ),
           ),
           Padding(
@@ -428,8 +447,12 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildStepLabel('Base', 0), _buildStepLabel('SIM', 1), _buildStepLabel('Fuso', 2),
-                _buildStepLabel('Allarmi', 3), _buildStepLabel('SMS', 4), _buildStepLabel('Fine', 5),
+                _buildStepLabel('Base', 0),
+                _buildStepLabel('SIM', 1),
+                _buildStepLabel('Fuso', 2),
+                _buildStepLabel('Allarmi', 3),
+                _buildStepLabel('SMS', 4),
+                _buildStepLabel('Fine', 5),
               ],
             ),
           ),
@@ -438,8 +461,12 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
               controller: _pageController,
               onPageChanged: (step) => setState(() => _currentStep = step),
               children: [
-                _buildStepOne(), _buildStepTwo(), _buildTimezoneStep(),
-                _buildStepThree(), _buildStepFour(), _buildStepFive(),
+                _buildStepOne(),
+                _buildStepTwo(),
+                _buildTimezoneStep(),
+                _buildStepThree(),
+                _buildStepFour(),
+                _buildStepFive(),
               ],
             ),
           ),
@@ -456,7 +483,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                     Expanded(
                       child: OutlinedButton(
                         onPressed: (_isLoading || _isSendingSMS) ? null : _previousStep,
-                        child: const Text('Indietro'),
+                        child: Text(localizations?.back ?? 'Indietro'),
                       ),
                     ),
                   if (_currentStep > 0) const SizedBox(width: 16),
@@ -465,7 +492,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                       onPressed: (_isLoading || _isSendingSMS) ? null : _nextStep,
                       child: (_isLoading || _isSendingSMS)
                           ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                          : Text(_currentStep == 5 ? 'Salva' : 'Avanti'),
+                          : Text(_currentStep == 5 ? localizations?.save ?? 'Salva' : localizations?.next ?? 'Avanti'),
                     ),
                   ),
                 ],
@@ -481,6 +508,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     final colorScheme = Theme.of(context).colorScheme;
     final isActive = stepIndex == _currentStep;
     final isCompleted = stepIndex < _currentStep;
+
     return InkWell(
       onTap: () => _onStepTapped(stepIndex),
       child: Padding(
@@ -499,6 +527,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   }
 
   Widget _buildStepOne() {
+    final localizations = AppLocalizations.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -506,30 +535,77 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Informazioni Base', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            Text(
+              localizations?.baseInfo ?? 'Informazioni Base',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
-            Text('Inserisci le informazioni di base del tracker', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+            Text(
+              localizations?.basicInfoDesc ?? 'Inserisci le informazioni di base del tracker',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+              ),
+            ),
             const SizedBox(height: 32),
-            TextFormField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Nome tracker', hintText: 'es. Auto Marco', prefixIcon: Icon(Icons.label_outline)), validator: (v) => (v == null || v.trim().isEmpty) ? 'Inserire un nome' : null),
+            TextFormField(
+              controller: nameCtrl,
+              decoration: InputDecoration(
+                labelText: localizations?.trackerName ?? 'Nome tracker',
+                hintText: localizations?.trackerNameHint ?? 'es. Auto Marco',
+                prefixIcon: const Icon(Icons.label_outline),
+              ),
+              validator: (v) => (v == null || v.trim().isEmpty) ? 'Inserire un nome' : null,
+            ),
             const SizedBox(height: 24),
-            TextFormField(controller: plateCtrl, decoration: const InputDecoration(labelText: 'Targa (opzionale)', hintText: 'es. AB123CD', prefixIcon: Icon(Icons.directions_car_outlined))),
+            TextFormField(
+              controller: plateCtrl,
+              decoration: InputDecoration(
+                labelText: localizations?.licensePlate ?? 'Targa (opzionale)',
+                hintText: localizations?.licensePlateHint ?? 'es. AB123CD',
+                prefixIcon: const Icon(Icons.directions_car_outlined),
+              ),
+            ),
             const SizedBox(height: 24),
-            TextFormField(controller: modelCtrl, decoration: const InputDecoration(labelText: 'Modello veicolo (opzionale)', hintText: 'es. Fiat Panda', prefixIcon: Icon(Icons.info_outline))),
+            TextFormField(
+              controller: modelCtrl,
+              decoration: InputDecoration(
+                labelText: localizations?.vehicleModel ?? 'Modello veicolo (opzionale)',
+                hintText: localizations?.vehicleModelHint ?? 'es. Fiat Panda',
+                prefixIcon: const Icon(Icons.info_outline),
+              ),
+            ),
             const SizedBox(height: 32),
-            Text('Colore identificativo', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              localizations?.colorIdentification ?? 'Colore identificativo',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 16),
             Wrap(
               spacing: 12,
               children: [
-                Colors.red, Colors.blue, Colors.green, Colors.orange, Colors.purple, Colors.teal, Colors.pink, Colors.brown,
-              ].map((c) => GestureDetector(
+                Colors.red,
+                Colors.blue,
+                Colors.green,
+                Colors.orange,
+                Colors.purple,
+                Colors.teal,
+                Colors.pink,
+                Colors.brown,
+              ]
+                  .map((c) => GestureDetector(
                 onTap: () => setState(() => color = c),
                 child: Container(
-                  width: 48, height: 48,
-                  decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: color.value == c.value ? Border.all(color: Colors.black, width: 3) : null),
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: c,
+                    shape: BoxShape.circle,
+                    border: color.value == c.value ? Border.all(color: Colors.black, width: 3) : null,
+                  ),
                   child: color.value == c.value ? const Icon(Icons.check, color: Colors.white) : null,
                 ),
-              )).toList(),
+              ))
+                  .toList(),
             ),
           ],
         ),
@@ -538,6 +614,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   }
 
   Widget _buildStepTwo() {
+    final localizations = AppLocalizations.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -545,15 +622,53 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Configurazione SIM', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            Text(
+              localizations?.simConfig ?? 'Configurazione SIM',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
-            Text('Configura la SIM card e i parametri di connessione', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+            Text(
+              localizations?.simConfigDesc ?? 'Configura la SIM card e i parametri di connessione',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+              ),
+            ),
             const SizedBox(height: 32),
-            TextFormField(controller: phoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Numero SIM del tracker *', hintText: '+39 123 456 7890', prefixIcon: Icon(Icons.sim_card_outlined), helperText: 'Necessario per inviare comandi SMS'), validator: (v) => (v == null || v.trim().isEmpty) ? 'Inserire numero SIM' : null),
+            TextFormField(
+              controller: phoneCtrl,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: localizations?.trackerSimNumber ?? 'Numero SIM del tracker *',
+                hintText: localizations?.simNumberHint ?? '+39 123 456 7890',
+                prefixIcon: const Icon(Icons.sim_card_outlined),
+                helperText: 'Necessario per inviare comandi SMS',
+              ),
+              validator: (v) => (v == null || v.trim().isEmpty) ? 'Inserire numero SIM' : null,
+            ),
             const SizedBox(height: 24),
-            TextFormField(controller: adminCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Numero amministratore (opzionale)', hintText: '+39 987 654 3210', prefixIcon: Icon(Icons.admin_panel_settings_outlined), helperText: 'Numero che può inviare comandi al tracker')),
+            TextFormField(
+              controller: adminCtrl,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: localizations?.adminNumber ?? 'Numero amministratore (opzionale)',
+                hintText: localizations?.adminNumberHint ?? '+39 987 654 3210',
+                prefixIcon: const Icon(Icons.admin_panel_settings_outlined),
+                helperText: 'Numero che può inviare comandi al tracker',
+              ),
+            ),
             const SizedBox(height: 24),
-            TextFormField(controller: pinCtrl, decoration: const InputDecoration(labelText: 'PIN comandi', hintText: '123456', prefixIcon: Icon(Icons.lock_outline), helperText: 'PIN per i comandi (default: 123456)'), validator: (v) => (v?.trim() ?? '').isNotEmpty && (v!.length != 6 || int.tryParse(v) == null) ? 'PIN deve essere 6 cifre' : null),
+            TextFormField(
+              controller: pinCtrl,
+              decoration: InputDecoration(
+                labelText: localizations?.commandPin ?? 'PIN comandi',
+                hintText: localizations?.commandPinHint ?? '123456',
+                prefixIcon: const Icon(Icons.lock_outline),
+                helperText: localizations?.commandPinHelp ?? 'PIN per i comandi (default: 123456)',
+              ),
+              validator: (v) => (v?.trim() ?? '').isNotEmpty && (v!.length != 6 || int.tryParse(v) == null)
+                  ? 'PIN deve essere 6 cifre'
+                  : null,
+            ),
             const SizedBox(height: 32),
             Card(
               child: Padding(
@@ -561,15 +676,42 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Configurazione APN', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    Text(
+                      localizations?.apnConfig ?? 'Configurazione APN',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                    ),
                     const SizedBox(height: 16),
-                    TextFormField(controller: apnCtrl, decoration: const InputDecoration(labelText: 'APN', hintText: 'internet.it, mobile.vodafone.it', prefixIcon: Icon(Icons.network_cell_outlined))),
+                    TextFormField(
+                      controller: apnCtrl,
+                      decoration: InputDecoration(
+                        labelText: localizations?.apn ?? 'APN',
+                        hintText: 'internet.it, mobile.vodafone.it',
+                        prefixIcon: const Icon(Icons.network_cell_outlined),
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     Row(
                       children: [
-                        Expanded(child: TextFormField(controller: apnUserCtrl, decoration: const InputDecoration(labelText: 'Username (opzionale)', prefixIcon: Icon(Icons.person_outline)))),
+                        Expanded(
+                          child: TextFormField(
+                            controller: apnUserCtrl,
+                            decoration: InputDecoration(
+                              labelText: localizations?.usernameOptional ?? 'Username (opzionale)',
+                              prefixIcon: const Icon(Icons.person_outline),
+                            ),
+                          ),
+                        ),
                         const SizedBox(width: 16),
-                        Expanded(child: TextFormField(controller: apnPassCtrl, obscureText: true, decoration: const InputDecoration(labelText: 'Password (opzionale)', prefixIcon: Icon(Icons.lock_outline)))),
+                        Expanded(
+                          child: TextFormField(
+                            controller: apnPassCtrl,
+                            obscureText: true,
+                            decoration: InputDecoration(
+                              labelText: localizations?.passwordOptional ?? 'Password (opzionale)',
+                              prefixIcon: const Icon(Icons.lock_outline),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ],
@@ -583,6 +725,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   }
 
   Widget _buildTimezoneStep() {
+    final localizations = AppLocalizations.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -590,16 +733,27 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Fuso Orario', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            Text(
+              localizations?.timezone ?? 'Fuso Orario',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
-            Text('Seleziona il fuso orario del tracker', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+            Text(
+              localizations?.timezoneSelect ?? 'Seleziona il fuso orario del tracker',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+              ),
+            ),
             const SizedBox(height: 32),
             ListTile(
               title: Text(_selectedTimezone, style: Theme.of(context).textTheme.titleMedium),
-              subtitle: const Text('Fuso Orario Selezionato'),
+              subtitle: Text(localizations?.timezoneSelected ?? 'Fuso Orario Selezionato'),
               leading: Icon(Icons.public, color: Theme.of(context).colorScheme.primary),
               trailing: const Icon(Icons.arrow_drop_down),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Theme.of(context).colorScheme.outline)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Theme.of(context).colorScheme.outline),
+              ),
               onTap: _timezoneInitialized ? _showTimezonePicker : null,
             ),
             const SizedBox(height: 24),
@@ -611,12 +765,26 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Comando SMS che verrà inviato:', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                      Text(
+                        'Comando SMS che verrà inviato:',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                      ),
                       const SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: Theme.of(context).colorScheme.outline.withOpacity(0.3))),
-                        child: Text(_generateTimezoneCommand(_selectedTimezone), style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontFamily: 'monospace', fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surface,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Theme.of(context).colorScheme.outline.withOpacity(0.3)),
+                        ),
+                        child: Text(
+                          _generateTimezoneCommand(_selectedTimezone),
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -629,6 +797,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   }
 
   Widget _buildStepThree() {
+    final localizations = AppLocalizations.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -636,14 +805,27 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Configurazione Allarmi', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            Text(
+              localizations?.alarmConfig ?? 'Configurazione Allarmi',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
-            Text('Configura gli allarmi e le notifiche del tracker', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+            Text(
+              localizations?.alarmConfigDesc ?? 'Configura gli allarmi e le notifiche del tracker',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+              ),
+            ),
             const SizedBox(height: 32),
             TextFormField(
               controller: speedCtrl,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Limite velocità (km/h)', hintText: 'Vuoto per disattivare', prefixIcon: Icon(Icons.speed_outlined), suffixText: 'km/h'),
+              decoration: InputDecoration(
+                labelText: localizations?.speedLimit ?? 'Limite velocità (km/h)',
+                hintText: localizations?.speedLimitHint ?? 'Vuoto per disattivare',
+                prefixIcon: const Icon(Icons.speed_outlined),
+                suffixText: 'km/h',
+              ),
               validator: (v) {
                 if ((v?.trim() ?? '').isEmpty) return null;
                 if (int.tryParse(v!) == null || int.parse(v) <= 0) return 'Inserire numero valido';
@@ -656,11 +838,26 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
-                    SwitchListTile(title: const Text('Allarme accensione (ACC)'), subtitle: const Text('Notifica all\'accensione/spegnimento'), value: ignitionAlarm, onChanged: (val) => setState(() => ignitionAlarm = val)),
+                    SwitchListTile(
+                      title: Text(localizations?.ignitionAlarm ?? 'Allarme accensione (ACC)'),
+                      subtitle: Text(localizations?.ignitionAlarmDesc ?? 'Notifica all\'accensione/spegnimento'),
+                      value: ignitionAlarm,
+                      onChanged: (val) => setState(() => ignitionAlarm = val),
+                    ),
                     const Divider(),
-                    SwitchListTile(title: const Text('Allarme alimentazione (SMS)'), subtitle: const Text('SMS se si stacca la batteria'), value: powerAlarmSMS, onChanged: (val) => setState(() => powerAlarmSMS = val)),
+                    SwitchListTile(
+                      title: Text(localizations?.powerAlarmSMS ?? 'Allarme alimentazione (SMS)'),
+                      subtitle: const Text('SMS se si stacca la batteria'),
+                      value: powerAlarmSMS,
+                      onChanged: (val) => setState(() => powerAlarmSMS = val),
+                    ),
                     const Divider(),
-                    SwitchListTile(title: const Text('Allarme alimentazione (Chiamata)'), subtitle: const Text('Chiamata se si stacca la batteria'), value: powerAlarmCall, onChanged: (val) => setState(() => powerAlarmCall = val)),
+                    SwitchListTile(
+                      title: Text(localizations?.powerAlarmCall ?? 'Allarme alimentazione (Chiamata)'),
+                      subtitle: const Text('Chiamata se si stacca la batteria'),
+                      value: powerAlarmCall,
+                      onChanged: (val) => setState(() => powerAlarmCall = val),
+                    ),
                   ],
                 ),
               ),
@@ -672,6 +869,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   }
 
   Widget _buildStepFour() {
+    final localizations = AppLocalizations.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -679,9 +877,17 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Configurazione via SMS', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            Text(
+              localizations?.smsConfig ?? 'Configurazione via SMS',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
-            Text('Invia i comandi per configurare il tracker', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+            Text(
+              localizations?.smsConfigDesc ?? 'Invia i comandi per configurare il tracker',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+              ),
+            ),
             const SizedBox(height: 32),
             if (_configurationSteps.isEmpty)
               Card(
@@ -692,9 +898,19 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                     children: [
                       Icon(Icons.info_outline, size: 48, color: Theme.of(context).colorScheme.onSurfaceVariant),
                       const SizedBox(height: 16),
-                      Text('Nessuna configurazione necessaria', style: Theme.of(context).textTheme.titleMedium, textAlign: TextAlign.center),
+                      Text(
+                        localizations?.noConfigNeeded ?? 'Nessuna configurazione necessaria',
+                        style: Theme.of(context).textTheme.titleMedium,
+                        textAlign: TextAlign.center,
+                      ),
                       const SizedBox(height: 8),
-                      Text('Il tracker può essere utilizzato con le impostazioni di default', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)), textAlign: TextAlign.center),
+                      Text(
+                        localizations?.defaultSettingsDesc ?? 'Il tracker può essere utilizzato con le impostazioni di default',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
                     ],
                   ),
                 ),
@@ -706,7 +922,10 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Comandi da inviare:', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                      Text(
+                        localizations?.commandsToSend ?? 'Comandi da inviare:',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                      ),
                       const SizedBox(height: 16),
                       ..._configurationSteps.map((command) {
                         final isCompleted = _smsStatus[command] ?? false;
@@ -714,10 +933,24 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                           padding: const EdgeInsets.symmetric(vertical: 4),
                           child: Row(
                             children: [
-                              Icon(isCompleted ? Icons.check_circle : Icons.radio_button_unchecked, color: isCompleted ? Colors.green : Theme.of(context).colorScheme.outline, size: 20),
+                              Icon(
+                                isCompleted ? Icons.check_circle : Icons.radio_button_unchecked,
+                                color: isCompleted ? Colors.green : Theme.of(context).colorScheme.outline,
+                                size: 20,
+                              ),
                               const SizedBox(width: 12),
-                              Expanded(child: Text(_getCommandDescription(command), style: Theme.of(context).textTheme.bodyMedium?.copyWith(decoration: isCompleted ? TextDecoration.lineThrough : null))),
-                              IconButton(icon: const Icon(Icons.send, size: 20), onPressed: (_isSendingSMS || isCompleted) ? null : () => _sendConfigurationSMS(command)),
+                              Expanded(
+                                child: Text(
+                                  _getCommandDescription(command),
+                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    decoration: isCompleted ? TextDecoration.lineThrough : null,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.send, size: 20),
+                                onPressed: (_isSendingSMS || isCompleted) ? null : () => _sendConfigurationSMS(command),
+                              ),
                             ],
                           ),
                         );
@@ -731,9 +964,15 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: (_isSendingSMS || _configurationSteps.every((cmd) => _smsStatus[cmd] == true)) ? null : _sendAllConfigurationSMS,
-                  icon: _isSendingSMS ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send),
-                  label: Text(_isSendingSMS ? 'Invio in corso...' : 'Invia tutti i comandi'),
+                  onPressed: (_isSendingSMS || _configurationSteps.every((cmd) => _smsStatus[cmd] == true))
+                      ? null
+                      : _sendAllConfigurationSMS,
+                  icon: _isSendingSMS
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.send),
+                  label: Text(_isSendingSMS
+                      ? localizations?.sendingInProgress ?? 'Invio in corso...'
+                      : localizations?.allCommandsSent ?? 'Invia tutti i comandi'),
                 ),
               ),
           ],
@@ -743,6 +982,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   }
 
   Widget _buildStepFive() {
+    final localizations = AppLocalizations.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Form(
@@ -750,7 +990,10 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Configurazione Completata', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            Text(
+              localizations?.configurationComplete ?? 'Configurazione Completata',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 32),
             Card(
               color: Colors.green.withOpacity(0.1),
@@ -760,9 +1003,19 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                   children: [
                     const Icon(Icons.check_circle, color: Colors.green, size: 48),
                     const SizedBox(height: 16),
-                    Text('Tracker pronto!', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Colors.green[700], fontWeight: FontWeight.bold)),
+                    Text(
+                      localizations?.trackerReady ?? 'Tracker pronto!',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: Colors.green[700],
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     const SizedBox(height: 8),
-                    Text('Premi "Salva" per completare la configurazione.', style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
+                    Text(
+                      localizations?.pressSaveToComplete ?? 'Premi "Salva" per completare la configurazione.',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                      textAlign: TextAlign.center,
+                    ),
                   ],
                 ),
               ),
@@ -774,13 +1027,19 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Riepilogo Configurazione', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    Text(
+                      localizations?.configurationSummary ?? 'Riepilogo Configurazione',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                    ),
                     const SizedBox(height: 16),
-                    _buildSummaryRow('Nome', nameCtrl.text.trim().isEmpty ? 'Tracker' : nameCtrl.text.trim()),
+                    _buildSummaryRow(localizations?.name ?? 'Nome', nameCtrl.text.trim().isEmpty ? 'Tracker' : nameCtrl.text.trim()),
                     _buildSummaryRow('Numero SIM', phoneCtrl.text.trim()),
-                    _buildSummaryRow('Fuso orario', _selectedTimezone),
-                    if (apnCtrl.text.trim().isNotEmpty) _buildSummaryRow('APN', apnCtrl.text.trim()),
-                    _buildSummaryRow('Comandi SMS inviati', '${_smsStatus.values.where((v) => v).length}/${_configurationSteps.length}'),
+                    _buildSummaryRow(localizations?.timezone ?? 'Fuso orario', _selectedTimezone),
+                    if (apnCtrl.text.trim().isNotEmpty) _buildSummaryRow(localizations?.apn ?? 'APN', apnCtrl.text.trim()),
+                    _buildSummaryRow(
+                      localizations?.smsCommandsSent ?? 'Comandi SMS inviati',
+                      '${_smsStatus.values.where((v) => v).length}/${_configurationSteps.length}',
+                    ),
                   ],
                 ),
               ),
@@ -797,7 +1056,15 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 120, child: Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)))),
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+              ),
+            ),
+          ),
           Expanded(child: Text(value, style: Theme.of(context).textTheme.bodyMedium)),
         ],
       ),

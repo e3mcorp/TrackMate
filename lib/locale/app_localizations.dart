@@ -1,4 +1,5 @@
 // lib/locale/app_localizations.dart
+
 import 'package:flutter/material.dart';
 import 'package:trackmate/locale/locales_en.dart';
 import 'package:trackmate/locale/locales_it.dart';
@@ -6,7 +7,7 @@ import 'package:trackmate/locale/locales_pt.dart';
 
 class AppLocalizations {
   final Locale locale;
-  final Map<String, String> _localizedStrings;
+  final Map _localizedStrings;
 
   AppLocalizations._(this.locale, this._localizedStrings);
 
@@ -111,6 +112,66 @@ class AppLocalizations {
   String get battery => get('battery');
   String get tracker => get('tracker');
   String get trackers => get('trackers');
+
+  // Getter per overview
+  String get overview => get('overview');
+  String get messages => get('messages');
+  String get history => get('history');
+  String get deviceInfo => get('deviceInfo');
+  String get technicalInfo => get('technicalInfo');
+  String get alarms => get('alarms');
+  String get licensePlate => get('licensePlate');
+  String get model => get('model');
+  String get lastUpdate => get('lastUpdate');
+  String get id => get('id');
+  String get imei => get('imei');
+  String get apn => get('apn');
+  String get iccid => get('iccid');
+  String get ignitionAlarm => get('ignitionAlarm');
+  String get powerAlarmSMS => get('powerAlarmSMS');
+
+  // Setup wizard specific getters
+  String get baseInfo => get('baseInfo');
+  String get basicInfoDesc => get('basicInfoDesc');
+  String get trackerName => get('trackerName');
+  String get trackerNameHint => get('trackerNameHint');
+  String get licensePlateHint => get('licensePlateHint');
+  String get vehicleModel => get('vehicleModel');
+  String get vehicleModelHint => get('vehicleModelHint');
+  String get colorIdentification => get('colorIdentification');
+  String get simConfig => get('simConfig');
+  String get simConfigDesc => get('simConfigDesc');
+  String get trackerSimNumber => get('trackerSimNumber');
+  String get simNumberHint => get('simNumberHint');
+  String get adminNumber => get('adminNumber');
+  String get adminNumberHint => get('adminNumberHint');
+  String get commandPin => get('commandPin');
+  String get commandPinHint => get('commandPinHint');
+  String get commandPinHelp => get('commandPinHelp');
+  String get apnConfig => get('apnConfig');
+  String get usernameOptional => get('usernameOptional');
+  String get passwordOptional => get('passwordOptional');
+  String get timezone => get('timezone');
+  String get timezoneSelect => get('timezoneSelect');
+  String get timezoneSelected => get('timezoneSelected');
+  String get alarmConfig => get('alarmConfig');
+  String get alarmConfigDesc => get('alarmConfigDesc');
+  String get speedLimit => get('speedLimit');
+  String get speedLimitHint => get('speedLimitHint');
+  String get ignitionAlarmDesc => get('ignitionAlarmDesc');
+  String get powerAlarmCall => get('powerAlarmCall');
+  String get smsConfig => get('smsConfig');
+  String get smsConfigDesc => get('smsConfigDesc');
+  String get noConfigNeeded => get('noConfigNeeded');
+  String get defaultSettingsDesc => get('defaultSettingsDesc');
+  String get commandsToSend => get('commandsToSend');
+  String get allCommandsSent => get('allCommandsSent');
+  String get sendingInProgress => get('sendingInProgress');
+  String get configurationComplete => get('configurationComplete');
+  String get trackerReady => get('trackerReady');
+  String get pressSaveToComplete => get('pressSaveToComplete');
+  String get configurationSummary => get('configurationSummary');
+  String get smsCommandsSent => get('smsCommandsSent');
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

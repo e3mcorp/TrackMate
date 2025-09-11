@@ -37,7 +37,7 @@ class LocalesEN {
     'deletedSuccessfully': 'Deleted successfully',
 
     // App sections
-    'carTracker': 'CarTracker',
+    'carTracker': 'TrackMate',
     'map': 'Map',
     'tracker': 'Tracker',
     'trackers': 'Trackers',
@@ -118,9 +118,9 @@ class LocalesEN {
     // Setup wizard
     'setupWizard': 'Setup Wizard',
     'startSetup': 'Start Setup',
-    'welcomeToCarTracker': 'Welcome to CarTracker',
+    'welcomeToCarTracker': 'Welcome to TrackMate',
     'welcome': 'Welcome!',
-    'welcomeDescription': 'CarTracker helps you monitor your vehicles via GPS trackers.\n\nYou will receive SMS with positions, battery status, and other useful information.',
+    'welcomeDescription': 'TrackMate helps you monitor your vehicles via GPS trackers.\n\nYou will receive SMS with positions, battery status, and other useful information.',
     'step': 'Step',
     'of': 'of',
 
@@ -236,6 +236,7 @@ class LocalesEN {
     'updateLocation': 'Update Location',
     'commandSent': 'Command Sent',
     'received': 'Received',
+    'sent': 'sent',
     'changePin': 'Change PIN',
     'getInfo': 'Get Info',
     'factoryReset': 'Factory Reset',
@@ -273,6 +274,72 @@ class LocalesEN {
     'firstConfiguration': 'First configuration...',
     'loadingComplete': 'Loading complete',
     'errorOccurred': 'An error occurred',
-    'copyright': '© 2025 CarTracker',
+    'copyright': '© 2025 TrackMate',
+    'overview': 'Overview',
+    // Device information
+
+    'deviceInfo': 'Device Information',
+    'technicalInfo': 'Technical Information',
+    'alarms': 'Alarms & Settings',
+    'lastUpdate': 'Last Update',
+    'imei': 'IMEI',
+
+    // Setup wizard steps
+    'baseInfo': 'Basic Information',
+    'basicInfoDesc': 'Enter the basic tracker information',
+    'licensePlateHint': 'e.g. AB123CD',
+    'vehicleModel': 'Vehicle Model (optional)',
+    'vehicleModelHint': 'e.g. Fiat Panda',
+    'colorIdentification': 'Identification Color',
+    'simConfig': 'SIM Configuration',
+    'simConfigDesc': 'Configure the SIM card and connection parameters',
+    'trackerSimNumber': 'Tracker SIM Number *',
+    'simNumberHint': '+1 123 456 7890',
+    'adminNumberHint': '+1 987 654 3210',
+    'commandPin': 'Command PIN',
+    'commandPinHint': '123456',
+    'commandPinHelp': 'PIN for commands (default: 123456)',
+    'apnConfig': 'APN Configuration',
+    'timezoneSelect': 'Select the tracker\'s timezone',
+    'timezoneSelected': 'Selected timezone',
+    'alarmConfig': 'Alarm Configuration',
+    'alarmConfigDesc': 'Configure tracker alarms and notifications',
+    'speedLimitHint': 'Leave empty to disable',
+    'ignitionAlarmDesc': 'Notify on ignition on/off',
+
+    'smsConfig': 'SMS Configuration',
+    'smsConfigDesc': 'Send commands to configure the tracker',
+    'noConfigNeeded': 'No configuration needed',
+    'defaultSettingsDesc': 'The tracker can be used with default settings',
+    'commandsToSend': 'Commands to send:',
+    'allCommandsSent': 'Send all commands',
+    'sendingInProgress': 'Sending...',
+    'configurationComplete': 'Configuration Complete',
+    'trackerReady': 'Tracker ready!',
+    'pressSaveToComplete': 'Press "Save" to complete the setup.',
+
+    'smsCommandsSent': 'SMS commands sent',
+
+    'refreshTrackerData': 'Refresh Tracker Data',
+    'status': 'Status',
+    'parameters': 'Parameters',
+    'position': 'Position',
+    'all': 'All',
+    'requestedCompleteUpdate': 'Requested complete update',
+    'requestedTrackerStatus': 'Requested tracker status',
+    'requestedTrackerParameters': 'Requested tracker parameters',
+    'requestedTrackerPosition': 'Requested tracker position',
+    'requestedBatteryStatus': 'Requested battery status',
+    'sendCustomSMS': 'Send Custom SMS',
+    'enterCommand': 'Enter command...',
+    'requestPosition': 'Request Position',
+    'positionRequested': 'Position requested',
+    'viewMessages': 'View Messages',
+    'on': 'ON',
+    'off': 'OFF',
+
+
+
+
   };
 }

@@ -24,21 +24,15 @@ class TrackerDetailsScreen extends StatefulWidget {
 
 class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
     with TickerProviderStateMixin {
-
   // Tab controller per le 3 schede
   late final TabController _tabController;
   bool _isEditMode = false;
 
-
-
   @override
   void initState() {
     super.initState();
-
     // ✅ Inizializza TabController con 3 schede
     _tabController = TabController(length: 3, vsync: this);
-
-
     // ✅ Listener per cambiamenti di tab
     _tabController.addListener(() {
       if (_tabController.indexIsChanging) {
@@ -52,7 +46,6 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
   @override
   void dispose() {
     _tabController.dispose();
-
     super.dispose();
   }
 
@@ -77,76 +70,83 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
-      appBar: AppBar(
-        title: Text(widget.tracker.name),
-        centerTitle: false,
-        actions: [
-          // Quick actions sempre visibili
-          IconButton(
-            icon: const Icon(Icons.gps_fixed),
-            onPressed: _requestPosition,
-            tooltip: 'Richiedi posizione',
-          ),
-          PopupMenuButton<String>(
-            onSelected: _handleMenuAction,
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'info',
-                child: ListTile(
-                  leading: const Icon(Icons.info),
-                  title: Text(localizations?.get('getInfo') ?? 'Get Info'),
-                  dense: true,
-                ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Custom header con back button e tabs
+            _buildCustomHeader(localizations, theme, colorScheme),
+            // Tab content
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildOverviewView(),
+                  _buildMessagesView(),
+                  _buildHistoryView(),
+                ],
               ),
-              PopupMenuItem(
-                value: 'factory_reset',
-                child: ListTile(
-                  leading: Icon(Icons.delete_forever, color: colorScheme.error),
-                  title: Text(localizations?.get('factoryReset') ?? 'Factory Reset'),
-                  dense: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCustomHeader(AppLocalizations? localizations, ThemeData theme, ColorScheme colorScheme) {
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.shadow.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // TabBar con freccia a sinistra
+          Row(
+            children: [
+              // Freccia back
+              IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => Navigator.pop(context),
+                tooltip: localizations?.get('back') ?? 'Back',
+              ),
+              // TabBar espansa
+              Expanded(
+                child: TabBar(
+                  controller: _tabController,
+                  tabs: [
+                    Tab(
+                      icon: const Icon(Icons.dashboard_outlined),
+                      text: localizations?.get('overview') ?? 'Overview',
+                    ),
+                    Tab(
+                      icon: Badge(
+                        isLabelVisible: widget.tracker.messages.isNotEmpty,
+                        label: Text('${widget.tracker.messages.length}'),
+                        child: const Icon(Icons.message_outlined),
+                      ),
+                      text: localizations?.get('messages') ?? 'Messages',
+                    ),
+                    Tab(
+                      icon: Badge(
+                        isLabelVisible: widget.tracker.positions.isNotEmpty,
+                        label: Text('${widget.tracker.positions.length}'),
+                        child: const Icon(Icons.history_outlined),
+                      ),
+                      text: localizations?.get('history') ?? 'History',
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
         ],
-        // ✅ TabBar nel bottom dell'AppBar
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: [
-            Tab(
-              icon: const Icon(Icons.dashboard_outlined),
-              text: localizations?.get('overview') ?? 'Overview',
-            ),
-            Tab(
-              icon: Badge(
-                isLabelVisible: widget.tracker.messages.isNotEmpty,
-                label: Text('${widget.tracker.messages.length}'),
-                child: const Icon(Icons.message_outlined),
-              ),
-              text: localizations?.get('messages') ?? 'Messages',
-            ),
-            Tab(
-              icon: Badge(
-                isLabelVisible: widget.tracker.positions.isNotEmpty,
-                label: Text('${widget.tracker.positions.length}'),
-                child: const Icon(Icons.history_outlined),
-              ),
-              text: localizations?.get('history') ?? 'History',
-            ),
-          ],
-        ),
       ),
-      body: SafeArea(
-        child: TabBarView(
-          controller: _tabController,
-          children: [
-            _buildOverviewView(), // Tab 0: Overview
-            _buildMessagesView(),  // Tab 1: Messages
-            _buildHistoryView(),   // Tab 2: History
-          ],
-        ),
-      ),
-      //floatingActionButton: _buildContextualFab(),
     );
   }
 
@@ -164,7 +164,7 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
         return FloatingActionButton(
           onPressed: () => widget.tracker.requestLocation(),
           child: const Icon(Icons.gps_fixed),
-          tooltip: 'Request Position',
+          tooltip: localizations?.get('requestPosition') ?? 'Request Position',
         );
       default:
         return null;
@@ -177,23 +177,174 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-
+          // Pulsante refresh in alto
+          _buildRefreshSection(localizations, theme, colorScheme),
+          const SizedBox(height: 16),
           // Device Info
           _buildDeviceInfoSection(localizations, theme, colorScheme),
           const SizedBox(height: 16),
-
           // Technical Info
           _buildTechnicalInfoSection(localizations, theme, colorScheme),
           const SizedBox(height: 16),
-
           // Settings Preview
           _buildSettingsPreview(localizations, theme, colorScheme),
         ],
+      ),
+    );
+  }
+
+  Widget _buildRefreshSection(AppLocalizations? localizations, ThemeData theme, ColorScheme colorScheme) {
+    return Card(
+      elevation: 0,
+      color: colorScheme.primaryContainer.withOpacity(0.3),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: colorScheme.primary.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.refresh,
+                  color: colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  localizations?.get('refreshTrackerData') ?? 'Refresh Tracker Data',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _buildRefreshButton(
+                  localizations?.get('status') ?? 'Status',
+                  Icons.info_outline,
+                      () => _refreshStatus(),
+                  theme,
+                  colorScheme,
+                ),
+                _buildRefreshButton(
+                  localizations?.get('parameters') ?? 'Parameters',
+                  Icons.settings_outlined,
+                      () => _refreshParameters(),
+                  theme,
+                  colorScheme,
+                ),
+                _buildRefreshButton(
+                  localizations?.get('position') ?? 'Position',
+                  Icons.location_on_outlined,
+                      () => _refreshPosition(),
+                  theme,
+                  colorScheme,
+                ),
+                _buildRefreshButton(
+                  localizations?.get('battery') ?? 'Battery',
+                  Icons.battery_std_outlined,
+                      () => _refreshBattery(),
+                  theme,
+                  colorScheme,
+                ),
+                _buildRefreshButton(
+                  localizations?.get('all') ?? 'All',
+                  Icons.refresh,
+                      () => _refreshAll(),
+                  theme,
+                  colorScheme,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _refreshAll() {
+    final localizations = AppLocalizations.of(context);
+    widget.tracker.requestStatus();
+    widget.tracker.requestParameters();
+    widget.tracker.requestLocation();
+    _showRefreshSnackbar(localizations?.get('requestedCompleteUpdate') ?? 'Requested complete update');
+  }
+
+  Widget _buildRefreshButton(
+      String label,
+      IconData icon,
+      VoidCallback onPressed,
+      ThemeData theme,
+      ColorScheme colorScheme,
+      ) {
+    return FilledButton.tonal(
+      onPressed: onPressed,
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        minimumSize: const Size(0, 36),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16),
+          const SizedBox(width: 4),
+          Text(label, style: theme.textTheme.bodySmall),
+        ],
+      ),
+    );
+  }
+
+  void _refreshStatus() {
+    final localizations = AppLocalizations.of(context);
+    widget.tracker.requestStatus();
+    _showRefreshSnackbar(localizations?.get('requestedTrackerStatus') ?? 'Requested tracker status');
+  }
+
+  void _refreshParameters() {
+    final localizations = AppLocalizations.of(context);
+    widget.tracker.requestParameters();
+    _showRefreshSnackbar(localizations?.get('requestedTrackerParameters') ?? 'Requested tracker parameters');
+  }
+
+  void _refreshPosition() {
+    final localizations = AppLocalizations.of(context);
+    widget.tracker.requestLocation();
+    _showRefreshSnackbar(localizations?.get('requestedTrackerPosition') ?? 'Requested tracker position');
+  }
+
+  void _refreshBattery() {
+    final localizations = AppLocalizations.of(context);
+    // Il comando STATUS# include anche la batteria
+    widget.tracker.requestStatus();
+    _showRefreshSnackbar(localizations?.get('requestedBatteryStatus') ?? 'Requested battery status');
+  }
+
+  void _showRefreshSnackbar(String message) {
+    final localizations = AppLocalizations.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+        action: SnackBarAction(
+          label: localizations?.get('messages') ?? 'Messages',
+          onPressed: () => _tabController.animateTo(1),
+        ),
       ),
     );
   }
@@ -217,14 +368,13 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
               ],
             ),
             const SizedBox(height: 16),
-
             // Battery and key metrics
             Row(
               children: [
                 Expanded(
                   child: _buildMetricItem(
                     icon: _getBatteryIcon(),
-                    label: 'Battery',
+                    label: localizations?.get('battery') ?? 'Battery',
                     value: '${widget.tracker.battery}%',
                     color: _getBatteryColor(widget.tracker.battery, colorScheme),
                   ),
@@ -233,7 +383,7 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
                 Expanded(
                   child: _buildMetricItem(
                     icon: Icons.message,
-                    label: 'Messages',
+                    label: localizations?.get('messages') ?? 'Messages',
                     value: '${widget.tracker.messages.length}',
                     color: colorScheme.primary,
                   ),
@@ -242,7 +392,7 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
                 Expanded(
                   child: _buildMetricItem(
                     icon: Icons.location_on,
-                    label: 'Positions',
+                    label: localizations?.get('positions') ?? 'Positions',
                     value: '${widget.tracker.positions.length}',
                     color: colorScheme.secondary,
                   ),
@@ -290,8 +440,6 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
       ],
     );
   }
-
-
 
   // ===== MESSAGES TAB =====
   Widget _buildMessagesView() {
@@ -428,6 +576,7 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
   }
 
   Widget _buildSimpleAlarmTile(String title, bool value, IconData icon, ThemeData theme, ColorScheme colorScheme) {
+    final localizations = AppLocalizations.of(context);
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -459,7 +608,7 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
           ),
           const Spacer(),
           Text(
-            value ? 'ON' : 'OFF',
+            value ? (localizations?.get('on') ?? 'ON') : (localizations?.get('off') ?? 'OFF'),
             style: theme.textTheme.bodySmall?.copyWith(
               fontWeight: FontWeight.bold,
               color: value ? colorScheme.primary : colorScheme.onSurfaceVariant,
@@ -469,7 +618,6 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
       ),
     );
   }
-
 
   // ===== HELPER WIDGETS =====
   Widget _buildSection({
@@ -634,12 +782,13 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
   }
 
   void _requestPosition() {
+    final localizations = AppLocalizations.of(context);
     widget.tracker.requestLocation();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('Position requested'),
+        content: Text(localizations?.get('positionRequested') ?? 'Position requested'),
         action: SnackBarAction(
-          label: 'View Messages',
+          label: localizations?.get('viewMessages') ?? 'View Messages',
           onPressed: () => _tabController.animateTo(1), // ✅ Vai alla tab Messages
         ),
       ),
@@ -647,22 +796,23 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
   }
 
   void _sendCustomMessage() {
+    final localizations = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (context) {
         String message = '';
         return AlertDialog(
-          title: const Text('Send Custom SMS'),
+          title: Text(localizations?.get('sendCustomSMS') ?? 'Send Custom SMS'),
           content: TextField(
-            decoration: const InputDecoration(
-              hintText: 'Enter command...',
+            decoration: InputDecoration(
+              hintText: localizations?.get('enterCommand') ?? 'Enter command...',
             ),
             onChanged: (value) => message = value,
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
+              child: Text(localizations?.get('cancel') ?? 'Cancel'),
             ),
             FilledButton(
               onPressed: () {
@@ -671,7 +821,7 @@ class _TrackerDetailsScreenState extends State<TrackerDetailsScreen>
                 }
                 Navigator.pop(context);
               },
-              child: const Text('Send'),
+              child: Text(localizations?.get('send') ?? 'Send'),
             ),
           ],
         );
